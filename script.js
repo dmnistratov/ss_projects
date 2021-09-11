@@ -1,5 +1,111 @@
 const {mat2, mat3, mat4, vec2, vec3, vec4} = glMatrix;
 
+
+class gltf2_importer {
+    constructor() {
+        this.meshes = []
+        this.component_type_map = {
+            5120: 1,
+            5121: 1,
+            5122: 2,
+            5123: 2,
+            5125: 4,
+            5126: 4
+        }
+
+        this.number_of_components_map = {
+            "SCALAR": 1,
+            "VEC2": 2,
+            "VEC3": 3,
+            "VEC4": 4,
+            "MAT2": 4,
+            "MAT3": 9,
+            "MAT4": 16
+        }
+    }
+
+
+    import(path) {
+        this.path = path
+        this.buffers = []
+
+        return new Promise((resolve, reject) =>  {
+            fetch(path)
+            .then(response => response.text())
+            .then((data) => {
+                this.json_file = JSON.parse(data)
+                this.readBuffers(this.json_file['buffers']).then(buffers => {
+                    this.buffers = buffers
+                    this.readMeshes(this.json_file['meshes'])
+                    resolve(this)
+                })
+            })
+        })
+    }
+
+
+    readMeshes(json_meshes) {
+        for(let json_mesh of json_meshes) {
+            for(let json_primitive of json_mesh['primitives']) {
+                let indices = this.readAccessor(json_primitive['indices'])
+                let vertices = this.readAccessor(json_primitive['attributes']['POSITION'])
+                let normals = this.readAccessor(json_primitive['attributes']['NORMAL'])
+                this.meshes.push({
+                    'vertices': vertices,
+                    'indices': indices,
+                    'normals': normals
+                })
+            }
+        }
+    }
+
+
+    readAccessor(index) {
+        let accessor = this.json_file['accessors'][index]
+        let bufferView = this.json_file['bufferViews'][accessor['bufferView']]
+        let buffer_index = bufferView['buffer']
+        let buffer = this.buffers[buffer_index]
+        let buffer_size = accessor['count']*this.number_of_components_map[accessor['type']]
+        let byteOffset = bufferView['byteOffset'] ? bufferView['byteOffset'] : 0
+        byteOffset += accessor['byteOffset'] ? accessor['byteOffset'] : 0
+
+        let typed_buffer = []
+        if(accessor['componentType'] == 5125) {
+            typed_buffer = new Int32Array(buffer, byteOffset, buffer_size)
+        }
+        else if(accessor['componentType'] == 5126) {
+            typed_buffer = new Float32Array(buffer, byteOffset, buffer_size)
+        }
+        else if(accessor['componentType'] == 5121) {
+            typed_buffer = new Int8Array(buffer, byteOffset, buffer_size)
+        }
+        else {
+            typed_buffer = new Int16Array(buffer, byteOffset, buffer_size)
+        }
+        return typed_buffer
+    }
+
+
+    async readBuffers(json_buffers) {
+        let path_to_asset = this.path.substring(0, this.path.lastIndexOf("/"));
+        let uris = []
+        for(let json_buffer of json_buffers) {
+            uris.push(path_to_asset + '/' + json_buffer['uri'])
+        }
+
+        let requests = uris.map(uri => fetch(uri));
+        return Promise.all(requests).then(responses => {
+            return Promise.all(responses.map(r => r.arrayBuffer()))
+        })
+    }
+}
+
+
+
+
+
+
+
 const vertexShaderSource = `# version 300 es
     in vec3 aVertexPosition;
     in vec3 aNormal;
@@ -8,9 +114,12 @@ const vertexShaderSource = `# version 300 es
     out vec3 position;
     uniform mat4 Model;
     void main(void) {
-        gl_Position = Model*vec4(aVertexPosition*0.3, 1);
-        normal = vec3(Model*vec4(aNormal, 0));
-        position = vec3(Model*vec4(aVertexPosition*0.3, 1));
+        float scale = 0.9f;
+        vec4 world_pos = Model*vec4(aVertexPosition*scale, 1);
+        world_pos.y -= 0.8f;
+        gl_Position = world_pos;
+        normal = normalize(transpose(inverse(mat3(Model))) * aNormal);
+        position = vec3(Model*vec4(aVertexPosition*scale, 1));
     }
 `;
 
@@ -18,8 +127,10 @@ const fragmentShaderSource = `# version 300 es
     precision highp float;
     uniform vec3 color;
     out vec4 fragColor;
+    
     in vec3 normal;
     in vec3 position;
+
     void main(void) {
         vec3 n = normalize(normal);
         vec3 lightPos = vec3(0, 0, -10);
@@ -30,172 +141,14 @@ const fragmentShaderSource = `# version 300 es
         float NdotL = max(dot(lightDir, n), 0.2);
         vec3 diffuse_contrib = NdotL*color;
 
-
         vec3 r = normalize(reflect(-lightDir, n));
         vec3 halfway = normalize(lightDir+cameraDirection); 
         float HdotN = max(dot(halfway, n), 0.0);
         float specular_contrib = pow(HdotN, 64.0);
 
-        fragColor = vec4(diffuse_contrib+specular_contrib*0.5, 1);
+        fragColor = vec4(diffuse_contrib+specular_contrib*0.3, 1);
     }
 `;
-
-
-//lines
-// const cubePositions = [
-//     //front
-//     -1, 1, -1,
-//     -1, -1, -1,
-//     1, -1, -1,   
-//     1, 1, -1,
-
-//     //right
-//     1, 1, 1,
-//     1, -1, 1,
-
-//     //top
-//     -1, 1, 1,
-
-//     //left
-//     -1, -1, 1,
-// ];
-
-
-// const cubeIndices = [
-//     //front
-//     0, 1,
-//     1, 2,
-//     2, 3,
-//     3, 0,
-
-//     //right
-//     3, 4,
-//     4, 5,
-//     5, 2,
-
-//     //top
-//     0, 6,
-//     6, 4,
-
-//     //left
-//     1, 7,
-//     7, 6,
-
-//     //back
-//     7, 5
-// ];
-
-
-//triangles
-const cubePositions = [
-    //front
-    -1, 1, -1,  //0
-    -1, -1, -1, //1
-    1, -1, -1,  //2
-    1, 1, -1,   //3
-
-    //right
-    1, -1, -1,  //2 (4)
-    1, 1, -1,   //3 (5)
-    1, 1, 1,    //4 (6)
-    1, -1, 1,   //5 (7)
-
-
-    //top
-    -1, 1, -1,  //0 (8)
-    1, 1, -1,   //3 (9)
-    1, 1, 1,    //4 (10)
-    -1, 1, 1,   //6 (11)
-
-
-    //left
-    -1, 1, -1,  //0 (12)
-    -1, -1, -1, //1 (13)
-    -1, -1, 1,  //7 (14)
-    -1, 1, 1,   //6 (15)
-
-    //bottom
-    -1, -1, -1, //1 (16)
-    1, -1, -1,  //2 (17)
-    1, -1, 1,   //5 (18)
-    -1, -1, 1,  //7 (19)
-
-
-    //back
-    -1, -1, 1,  //7 (20)
-    -1, 1, 1,   //6 (21) 
-    1, 1, 1,    //4 (22)
-    1, -1, 1,   //5 (23)
-];
-
-
-const cubeNormals = [
-    //front
-    0, 0, -1,  //0
-    0, 0, -1,  //0
-    0, 0, -1,  //0
-    0, 0, -1,  //0
-
-    //right
-    1, 0, 0,
-    1, 0, 0,
-    1, 0, 0,
-    1, 0, 0,
-
-
-    //top
-    0, 1, 0,
-    0, 1, 0,
-    0, 1, 0,
-    0, 1, 0,
-
-
-    //left
-    -1, 0, 0,
-    -1, 0, 0,
-    -1, 0, 0,
-    -1, 0, 0,
-
-    //bottom
-    0, -1, 0,
-    0, -1, 0,
-    0, -1, 0,
-    0, -1, 0,
-
-
-    //back
-    0, 0, 1,
-    0, 0, 1,
-    0, 0, 1,
-    0, 0, 1
-];
-
-
-const cubeIndices = [
-    // front
-    0, 1, 2,
-    0, 3, 2,
-
-    //right
-    5, 4, 7,
-    5, 7, 6,
-
-    //top
-    8, 9, 10,
-    8, 11, 10,
-
-    //left
-    12, 13, 14,
-    12, 15, 14,
-
-    //bottom
-    16, 19, 17,
-    19, 18, 17,
-
-    //back
-    20, 21, 23,
-    21, 22, 23
-];
 
 
 function loadShader(gl, type, source) {
@@ -212,11 +165,6 @@ function loadShader(gl, type, source) {
   
     return shader;
 }
-
-
-
-
-
 
 
 function createShaderProgram(gl, vsSource, fsSource) {
@@ -237,102 +185,84 @@ function createShaderProgram(gl, vsSource, fsSource) {
 }
 
 
+function initWebGl(gl, raw_meshes) {
+    meshes = []
 
+    for(mesh of raw_meshes) {
+        var vao = gl.createVertexArray();
+        gl.bindVertexArray(vao);
 
+        //positions
+        const posBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh['vertices']), gl.STATIC_DRAW);
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(0);
 
+        //normals
+        const normalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh['normals']), gl.STATIC_DRAW);
+        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(1);
 
-function initBuffer(gl) {
-    //vertex array
-    var vao = gl.createVertexArray();
-    gl.bindVertexArray(vao);
+        //indices
+        const indexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(mesh['indices']), gl.STATIC_DRAW);
 
-    
-    //positions
-    const posBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubePositions), gl.STATIC_DRAW);
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(0);
+        meshes.push({
+            'vao': vao,
+            'positions': posBuffer,
+            'indices':  indexBuffer,
+            'numberOfIndices': mesh['indices'].length
+        })
+    }
 
-
-    //normals
-    const normalBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubeNormals), gl.STATIC_DRAW);
-    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(1);
-
-
-    //indices
-    const indexBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(cubeIndices), gl.STATIC_DRAW);
-
-
-    verticesBuffer = {
-        'vao': vao,
-        'positions': posBuffer,
-        'indices':  indexBuffer,
-        'numberOfIndices': 6
-    };
-    
-    return verticesBuffer;
+    return meshes
 }
-
-
-
-
 
 
 var start_time = undefined
 var ModelMatrix = mat4.create();
 var current_angle = 0
+var degrees_per_second = 45.0;
 
-function drawScene(gl, program, buffer) {
+function draw(gl, program, buffers) {
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    gl.bindVertexArray(buffer.vao);
     gl.useProgram(program);
 
-
-
-
+    //set unfiorms
+    //  color
     var u_color = gl.getUniformLocation(program, "color");
     gl.uniform3fv(u_color, [124/255,252/255,0]);
 
-
+    //  animation
     if(start_time == undefined) {
         start_time = new Date().getTime();
     }
     var elapsed_time = new Date().getTime() - start_time;
-    console.log(elapsed_time);
-
-
-    var degrees_per_second = 45.0;
-
     current_angle = degrees_per_second*(elapsed_time/1000)
-
-
-    var x_rot = mat4.create();
-    mat4.fromXRotation(x_rot, glMatrix.glMatrix.toRadian(10.0))
     mat4.fromYRotation(ModelMatrix, glMatrix.glMatrix.toRadian(current_angle))
 
-    mat4.mul(ModelMatrix, ModelMatrix, x_rot)
     if(current_angle == 360) {
         start_time = new Date().getTime();
         current_angle = 0
     }
 
-
+    //  model
     var u_model = gl.getUniformLocation(program, "Model");
     gl.uniformMatrix4fv(u_model, false, ModelMatrix) 
-    gl.drawElements(gl.TRIANGLES, cubeIndices.length, gl.UNSIGNED_SHORT, 0);
 
-    requestAnimationFrame(function() {drawScene(gl, program, buffer)});
+    // draw
+    for(buffer of buffers) {
+        gl.bindVertexArray(buffer.vao);
+        gl.drawElements(gl.TRIANGLES, buffer.numberOfIndices, gl.UNSIGNED_SHORT, 0);
+    }
+
+    requestAnimationFrame(function() {draw(gl, program, buffers)});
 }
-
-
-
 
 
 
@@ -345,23 +275,14 @@ function main() {
       return;
     }
   
-    gl.clearColor(0.0, 0.0, 0.0, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-
     const shaderProgram = createShaderProgram(gl, vertexShaderSource, fragmentShaderSource);
-    const buffer = initBuffer(gl);
-    
 
-    gl.enable(gl.DEPTH_TEST)
-    drawScene(gl, shaderProgram, buffer);
-
-
+    var importer = new gltf2_importer()
+    importer.import("./assets/Flair/Flair.gltf").then(importer => {
+        let buffers = initWebGl(gl, importer.meshes)
+        draw(gl, shaderProgram, buffers)
+        gl.enable(gl.DEPTH_TEST)
+    })
 }
   
-
-
-
-
-
 window.onload = main;
