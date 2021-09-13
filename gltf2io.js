@@ -41,26 +41,6 @@ export class gltf2_importer {
         this.textures = this.readTextures(this.json_file['textures'])
         this.materials = this.readMaterials(this.json_file['materials'])
         this.readMeshes(this.json_file['meshes'])
-
-
-        // return new Promise((resolve, reject) =>  {
-        //     fetch(path)
-        //     .then(response => response.text())
-        //     .then((data) => {
-        //         this.json_file = JSON.parse(data)
-        //         let images = this.readImages(this.json_file['images'])
-        //         let buffers = this.readBuffers(this.json_file['buffers'])
-
-        //         return Promise.all([buffers, images]).then(([buffers, images]) => {
-        //             this.images = images
-        //             this.textures = this.readTextures(this.json_file['textures'])
-        //             this.materials = this.readMaterials(this.json_file['materials'])
-        //             this.buffers = buffers
-        //             this.readMeshes(this.json_file['meshes'])
-        //             resolve(this)
-        //         })
-        //     })
-        // })
     }
 
 
@@ -68,9 +48,18 @@ export class gltf2_importer {
     readMaterials(json_materials) {
         let materials = []
         for(let json_material of json_materials) {
+            let baseColorTexture = json_material['pbrMetallicRoughness']['baseColorTexture']
+            let normalTexture = json_material['normalTexture']
+            let baseColorFactor = json_material['pbrMetallicRoughness']['baseColorFactor']
+            let baseColorTexcoord = baseColorTexture ? 0 : -1
+            let normalTexcoord = normalTexture ? 0 : -1
+
             materials.push({
-                'normalTexture': json_material['normalTexture'] ? json_material['normalTexture']['index'] : undefined,
-                'baseColorTexture': json_material['pbrMetallicRoughness']['baseColorTexture']['index']
+                'normalTexture': normalTexture ? normalTexture['index'] : undefined,
+                'baseColorTexture': baseColorTexture ?  baseColorTexture['index'] : undefined,
+                'baseColorTexcoord': baseColorTexcoord,
+                'normalTexcoord': normalTexcoord,
+                'baseColorFactor': baseColorFactor ? baseColorFactor : [1, 1, 1, 1]
             })
         }
 
@@ -87,7 +76,7 @@ export class gltf2_importer {
             
             textures.push({
                 'magFilter': sampler['magFilter'] ? sampler['magFilter'] : 9729,
-                'minFilter': sampler['minFilter'] ? sampler['minFilter'] : 9729,
+                'minFilter': sampler['minFilter'] ? sampler['minFilter'] : 9728,
                 'wrapS': sampler['wrapS'] ? sampler['wrapS'] : 10497,
                 'wrapT': sampler['wrapT'] ? sampler['wrapT'] : 10497,
                 'name': source['name'],
