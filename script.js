@@ -2,11 +2,7 @@ import { gltf2_importer } from "./gltf2io.js";
 const {mat2, mat3, mat4, vec2, vec3, vec4} = glMatrix;
 
 
-//async/await
-//split by classes
-//shaders folder
-//prepare geometry/material
-//draw
+
 
 
 const vertexShaderSource = `# version 300 es
