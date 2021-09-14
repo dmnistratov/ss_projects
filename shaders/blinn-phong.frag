@@ -10,7 +10,7 @@ in vec3 debugColor;
 out vec4 fragColor;
 
 uniform vec3 color;
-
+uniform vec3 cameraDirection;
 
 
 struct Material {
@@ -51,18 +51,18 @@ void main(void) {
         n = normalize(getNormal());
     }
 
-    vec3 lightPos = vec3(0, 0, -10);
+    vec3 lightPos = vec3(5, 5, 10);
     vec3 lightDir = normalize(-(position-lightPos));
-    vec3 cameraPosition = vec3(15,5,-5);
-    vec3 cameraDirection = normalize(-(position-cameraPosition));
+    // vec3 cameraPosition = vec3(15,5,-5);
+    vec3 cameraDir = -normalize(cameraDirection);
 
     float NdotL = max(dot(lightDir, n), 0.3);
     vec3 diffuse_contrib = NdotL*baseColor.rgb;
 
     vec3 r = normalize(reflect(-lightDir, n));
-    vec3 halfway = normalize(lightDir+cameraDirection); 
+    vec3 halfway = normalize(lightDir+cameraDir); 
     float HdotN = max(dot(halfway, n), 0.0);
     float specular_contrib = pow(HdotN, 64.0);
 
-    fragColor = vec4(diffuse_contrib+specular_contrib*1.0, 1);
+    fragColor = vec4(diffuse_contrib+specular_contrib*0.4, 1);
 }

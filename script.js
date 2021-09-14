@@ -1,6 +1,6 @@
 import { gltf2_importer } from "./gltf2io.js";
 import { Shader } from "./shader.js";
-const {mat2, mat3, mat4, vec2, vec3, vec4} = glMatrix;
+const {mat2, mat3, mat4, vec2, vec3, vec4, quat} = glMatrix;
 
 
 
@@ -120,11 +120,10 @@ function applyMaterial(gl, program, material_index, materials, textures) {
 
 
 var start_time = undefined
-var ModelMatrix = mat4.create();
 var current_angle = 0
 var degrees_per_second = 45.0;
 
-function draw(gl, program, buffers, importer) {
+function draw(gl, program, buffers, importer, uniforms) {
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.useProgram(program);
@@ -132,17 +131,17 @@ function draw(gl, program, buffers, importer) {
 
 
     //  animation
-    if(start_time == undefined) {
-        start_time = new Date().getTime();
-    }
-    var elapsed_time = new Date().getTime() - start_time;
-    current_angle = degrees_per_second*(elapsed_time/1000)
-    mat4.fromYRotation(ModelMatrix, glMatrix.glMatrix.toRadian(current_angle))
+    // if(start_time == undefined) {
+    //     start_time = new Date().getTime();
+    // }
+    // var elapsed_time = new Date().getTime() - start_time;
+    // current_angle = degrees_per_second*(elapsed_time/1000)
+    // mat4.fromYRotation(uniforms.Model, glMatrix.glMatrix.toRadian(current_angle))
 
-    if(current_angle == 360) {
-        start_time = new Date().getTime();
-        current_angle = 0
-    }
+    // if(current_angle == 360) {
+    //     start_time = new Date().getTime();
+    //     current_angle = 0
+    // }
 
 
     //set unfiorms
@@ -151,22 +150,21 @@ function draw(gl, program, buffers, importer) {
     gl.uniform3fv(u_color, [124/255,252/255,0]);
 
 
+    //  camera direction
+    var u_camera = gl.getUniformLocation(program, "cameraDirection");
+    gl.uniform3fv(u_camera, uniforms.camera.direction) 
+
     //  model
     var u_model = gl.getUniformLocation(program, "Model");
-    gl.uniformMatrix4fv(u_model, false, ModelMatrix) 
+    gl.uniformMatrix4fv(u_model, false, uniforms.Model) 
 
     //  view
-    let View = mat4.create()
-    mat4.lookAt(View, [0,2.5,-3], [0,0,0], [0,1,0])
     var u_view = gl.getUniformLocation(program, "View");
-    gl.uniformMatrix4fv(u_view, false, View) 
+    gl.uniformMatrix4fv(u_view, false, uniforms.View) 
 
     // projection
-    let Projection = mat4.create()
-    var canvas = document.querySelector("#glCanvas");
-    mat4.perspective(Projection, glMatrix.glMatrix.toRadian(45.0), canvas.width/canvas.height, 0.5, 200.0)
     var u_projection = gl.getUniformLocation(program, "Projection");
-    gl.uniformMatrix4fv(u_projection, false, Projection) 
+    gl.uniformMatrix4fv(u_projection, false, uniforms.Projection) 
 
     // draw
     for(let buffer of buffers) {
@@ -175,7 +173,7 @@ function draw(gl, program, buffers, importer) {
         gl.drawElements(gl.TRIANGLES, buffer.numberOfIndices, gl.UNSIGNED_SHORT, 0);
     }
 
-    requestAnimationFrame(function() {draw(gl, program, buffers, importer)});
+    requestAnimationFrame(function() {draw(gl, program, buffers, importer, uniforms)});
 }
 
 
@@ -185,7 +183,14 @@ async function main() {
     canvas.width  = window.innerWidth;
     canvas.height = window.innerHeight;
     const gl = canvas.getContext("webgl2");
+
+    if (gl === null) {
+      alert("Unable to initialize WebGL. Your browser or machine may not support it.");
+      return;
+    }
   
+
+    canvas.ondragstart = () => false
     // resize canvas/viewport
     window.addEventListener('resize', () => {
         canvas.width = window.innerWidth
@@ -194,16 +199,82 @@ async function main() {
     }, false);
 
 
-    if (gl === null) {
-      alert("Unable to initialize WebGL. Your browser or machine may not support it.");
-      return;
-    }
-  
+    let camera_pos = vec3.create()
+    vec3.set(camera_pos, 1, 2, 3)
+
+    let camera_direction = vec3.create()
+    vec3.negate(camera_direction, camera_pos)
+
+    let camera = {
+        'position': camera_pos,
+        'direction': camera_direction
+    };
+
+    // model
+    let Model = mat4.create();
+    //  view
+    let View = mat4.create()
+    mat4.lookAt(View, camera.position, [0,0,0], [0,1,0])
+    // projection
+    let Projection = mat4.create()
+    mat4.perspective(Projection, glMatrix.glMatrix.toRadian(45.0), canvas.width/canvas.height, 0.5, 200.0)
+
+
+
+
+    let uniforms = {
+        'Model': Model,
+        'View': View,
+        'Projection': Projection,
+        'camera': camera 
+    };
+
+
+
+    canvas.addEventListener('pointercancel', function(event) {
+        console.log('cancel')
+        return true;
+    })
+
+    let rotateCamera  = (event) => {
+        let dx = -event.movementX*0.01
+        let dy = event.movementY*0.01
+        console.log(dx, dy)
+        let radius = vec3.length(camera.position)
+
+        let theta = Math.asin(camera.position[1]/radius)
+        theta += dy
+        theta = Math.min(Math.max(theta, -Math.PI/2), Math.PI/2);
+
+        let phi = Math.atan2(camera.position[0],camera.position[2])
+        phi += dx
+
+        camera.position[1] = radius*Math.sin(theta)
+        camera.position[0] = radius*Math.sin(phi)*Math.cos(theta)
+        camera.position[2] = radius*Math.cos(phi)*Math.cos(theta)
+        vec3.negate(camera.direction, camera.position)
+        mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
+    };
+
+    canvas.addEventListener('pointerdown', function(event) {
+        if(event.button == 0) {
+            canvas.addEventListener('pointermove', rotateCamera)
+        }
+    })
+
+    canvas.addEventListener('pointerup', function(event) {
+        if(event.button == 0) {
+            canvas.removeEventListener('pointermove', rotateCamera)
+        }
+    })
+    
+
+
     let importer = new gltf2_importer()
     await importer.import("./assets/ruby_rose/scene.gltf")
     let shaderProgram = await Shader.loadFromFile(gl, "shaders/main.vert", "shaders/blinn-phong.frag")
     let buffers = initWebGl(gl, importer)
-    draw(gl, shaderProgram, buffers, importer)
+    draw(gl, shaderProgram, buffers, importer, uniforms)
 }
   
 
