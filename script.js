@@ -233,22 +233,22 @@ async function main() {
 
 
     let rotateCamera  = (event) => {
-        // let dx = -event.movementX*0.01
-        // let dy = event.movementY*0.01
-        // let radius = vec3.length(camera.position)
+        let dx = -event.movementX*0.01
+        let dy = event.movementY*0.01
+        let radius = vec3.length(camera.position)
 
-        // let theta = Math.asin(camera.position[1]/radius)
-        // theta += dy
-        // theta = Math.min(Math.max(theta, -Math.PI/2), Math.PI/2);
+        let theta = Math.asin(camera.position[1]/radius)
+        theta += dy
+        theta = Math.min(Math.max(theta, -Math.PI/2), Math.PI/2);
 
-        // let phi = Math.atan2(camera.position[0],camera.position[2])
-        // phi += dx
+        let phi = Math.atan2(camera.position[0],camera.position[2])
+        phi += dx
 
-        // camera.position[1] = radius*Math.sin(theta)
-        // camera.position[0] = radius*Math.sin(phi)*Math.cos(theta)
-        // camera.position[2] = radius*Math.cos(phi)*Math.cos(theta)
-        // vec3.negate(camera.direction, camera.position)
-        // mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
+        camera.position[1] = radius*Math.sin(theta)
+        camera.position[0] = radius*Math.sin(phi)*Math.cos(theta)
+        camera.position[2] = radius*Math.cos(phi)*Math.cos(theta)
+        vec3.negate(camera.direction, camera.position)
+        mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
     };
 
     canvas.addEventListener('pointerdown', function(event) {
