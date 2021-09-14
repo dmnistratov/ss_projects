@@ -6,6 +6,8 @@ const {mat2, mat3, mat4, vec2, vec3, vec4} = glMatrix;
 
 function initWebGl(gl, importer) {
     gl.enable(gl.DEPTH_TEST)
+
+    //create textures
     for(let texture of importer.textures) {
         const gl_texture = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, gl_texture);
@@ -107,7 +109,7 @@ function applyMaterial(gl, program, material_index, materials, textures) {
         gl.uniform1i(location, material.baseColorTexcoord) 
     }
 
-    // baseColorTexcoord
+    // normalTexcoord
     {
         let location = gl.getUniformLocation(program, "material.normalTexcoord");
         gl.uniform1i(location, material.normalTexcoord) 
@@ -128,10 +130,6 @@ function draw(gl, program, buffers, importer) {
     gl.useProgram(program);
 
 
-    //set unfiorms
-    //  color
-    var u_color = gl.getUniformLocation(program, "color");
-    gl.uniform3fv(u_color, [124/255,252/255,0]);
 
     //  animation
     if(start_time == undefined) {
@@ -146,6 +144,13 @@ function draw(gl, program, buffers, importer) {
         current_angle = 0
     }
 
+
+    //set unfiorms
+    //  color
+    var u_color = gl.getUniformLocation(program, "color");
+    gl.uniform3fv(u_color, [124/255,252/255,0]);
+
+
     //  model
     var u_model = gl.getUniformLocation(program, "Model");
     gl.uniformMatrix4fv(u_model, false, ModelMatrix) 
@@ -158,7 +163,7 @@ function draw(gl, program, buffers, importer) {
 
     // projection
     let Projection = mat4.create()
-    let canvas = document.getElementById('glCanvas');
+    var canvas = document.querySelector("#glCanvas");
     mat4.perspective(Projection, glMatrix.glMatrix.toRadian(45.0), canvas.width/canvas.height, 0.5, 200.0)
     var u_projection = gl.getUniformLocation(program, "Projection");
     gl.uniformMatrix4fv(u_projection, false, Projection) 
@@ -176,9 +181,19 @@ function draw(gl, program, buffers, importer) {
 
 
 async function main() {
-    const canvas = document.querySelector("#glCanvas");
+    var canvas = document.querySelector("#glCanvas");
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
     const gl = canvas.getContext("webgl2");
   
+    // resize canvas/viewport
+    window.addEventListener('resize', () => {
+        canvas.width = window.innerWidth
+        canvas.height = window.innerHeight
+        gl.viewport(0, 0, canvas.width, canvas.height)
+    }, false);
+
+
     if (gl === null) {
       alert("Unable to initialize WebGL. Your browser or machine may not support it.");
       return;
@@ -191,4 +206,5 @@ async function main() {
     draw(gl, shaderProgram, buffers, importer)
 }
   
+
 window.onload = main;
