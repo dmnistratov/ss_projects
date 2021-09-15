@@ -230,35 +230,44 @@ async function main() {
     };
 
 
-
+    let mousePrevX;
+    let mousePrevY;
 
     let rotateCamera  = (event) => {
-        let dx = -event.movementX*0.01
-        let dy = event.movementY*0.01
+        let dx = -(mousePrevX ? event.screenX - mousePrevX : 0)*0.01
+        let dy = (mousePrevY ? event.screenY - mousePrevY : 0)*0.01
         let radius = vec3.length(camera.position)
-        alert('dx, dy, radius ' + dx + ' ' + dy + ' ' + radius)
+        // alert('dx, dy, radius ' + dx + ' ' + dy + ' ' + radius)
+        // console.log(dx,dy)
 
         let theta = Math.asin(camera.position[1]/radius)
         theta += dy
         theta = Math.min(Math.max(theta, -Math.PI/2), Math.PI/2);
-        alert('theta ' + theta)
+        // alert('theta ' + theta)
 
         let phi = Math.atan2(camera.position[0],camera.position[2])
         phi += dx
-        alert('phi ' + phi)
+        // alert('phi ' + phi)
 
 
         camera.position[1] = radius*Math.sin(theta)
         camera.position[0] = radius*Math.sin(phi)*Math.cos(theta)
         camera.position[2] = radius*Math.cos(phi)*Math.cos(theta)
-        alert('camera pos ' +  camera.position[0] + ' ' +  camera.position[1] + ' ' +  camera.position[2])
+        // alert('camera pos ' +  camera.position[0] + ' ' +  camera.position[1] + ' ' +  camera.position[2])
         vec3.negate(camera.direction, camera.position)
-        alert('camera dir ' +  camera.position[0] + ' ' +  camera.position[1] + ' ' +  camera.position[2])
+        // alert('camera dir ' +  camera.position[0] + ' ' +  camera.position[1] + ' ' +  camera.position[2])
         mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
+
+        mousePrevX = event.screenX;
+        mousePrevY = event.screenY;
     };
+
+
 
     canvas.addEventListener('pointerdown', function(event) {
         if(event.button == 0) {
+            mousePrevX = 0;
+            mousePrevY = 0;
             canvas.addEventListener('pointermove', rotateCamera)
         }
     })
