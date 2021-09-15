@@ -236,18 +236,24 @@ async function main() {
         let dx = -event.movementX*0.01
         let dy = event.movementY*0.01
         let radius = vec3.length(camera.position)
+        alert('dx, dy, radius ' + dx + ' ' + dy + ' ' + radius)
 
         let theta = Math.asin(camera.position[1]/radius)
         theta += dy
         theta = Math.min(Math.max(theta, -Math.PI/2), Math.PI/2);
+        alert('theta ' + theta)
 
         let phi = Math.atan2(camera.position[0],camera.position[2])
         phi += dx
+        alert('phi ' + phi)
+
 
         camera.position[1] = radius*Math.sin(theta)
         camera.position[0] = radius*Math.sin(phi)*Math.cos(theta)
         camera.position[2] = radius*Math.cos(phi)*Math.cos(theta)
+        alert('camera pos ' +  camera.position[0] + ' ' +  camera.position[1] + ' ' +  camera.position[2])
         vec3.negate(camera.direction, camera.position)
+        alert('camera dir ' +  camera.position[0] + ' ' +  camera.position[1] + ' ' +  camera.position[2])
         mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
     };
 

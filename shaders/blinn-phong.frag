@@ -23,6 +23,7 @@ struct Material {
 
 uniform Material material;
 
+
 vec3 getNormal() {
     vec3 tangentNormal = texture(material.normalTexture, texcoord0).xyz * 2.0 - 1.0;
 
@@ -43,7 +44,7 @@ vec3 getNormal() {
 void main(void) {
     vec4 baseColor = material.baseColorFactor;
     if(material.baseColorTexcoord != -1) {
-        baseColor *= texture(material.baseColorTexture, texcoord0);
+        baseColor *= (texture(material.baseColorTexture, texcoord0));
     }
 
     vec3 n = normalize(normal);
@@ -64,5 +65,5 @@ void main(void) {
     float HdotN = max(dot(halfway, n), 0.0);
     float specular_contrib = pow(HdotN, 64.0);
 
-    fragColor = vec4(diffuse_contrib+specular_contrib*0.4, 1);
+    fragColor = (vec4(diffuse_contrib+specular_contrib*0.4, 1));
 }
