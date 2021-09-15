@@ -8,5 +8,4 @@ html, body {
     width: 100%;
     max-height: calc(100% - 80px); /* navbar height == 80px */
     display: block;
-    touch-action: none;
 }
