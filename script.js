@@ -237,30 +237,52 @@ async function main() {
         let dx = -(mousePrevX ? event.screenX - mousePrevX : 0)*0.01
         let dy = (mousePrevY ? event.screenY - mousePrevY : 0)*0.01
         let radius = vec3.length(camera.position)
-        // alert('dx, dy, radius ' + dx + ' ' + dy + ' ' + radius)
-        // console.log(dx,dy)
-
+        
         let theta = Math.asin(camera.position[1]/radius)
         theta += dy
         theta = Math.min(Math.max(theta, -Math.PI/2), Math.PI/2);
-        // alert('theta ' + theta)
 
         let phi = Math.atan2(camera.position[0],camera.position[2])
         phi += dx
-        // alert('phi ' + phi)
-
 
         camera.position[1] = radius*Math.sin(theta)
         camera.position[0] = radius*Math.sin(phi)*Math.cos(theta)
         camera.position[2] = radius*Math.cos(phi)*Math.cos(theta)
-        // alert('camera pos ' +  camera.position[0] + ' ' +  camera.position[1] + ' ' +  camera.position[2])
-        vec3.negate(camera.direction, camera.position)
-        // alert('camera dir ' +  camera.position[0] + ' ' +  camera.position[1] + ' ' +  camera.position[2])
         mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
 
         mousePrevX = event.screenX;
         mousePrevY = event.screenY;
     };
+
+
+    let zoom = (event) => {
+        let camera_direction = vec3.create()
+        let new_position = vec3.create()
+        vec3.negate(camera_direction, camera.position)
+        vec3.scaleAndAdd(new_position, camera.position, camera_direction, -event.deltaY*0.001)
+
+        let length = vec3.length(new_position)
+        if(length < 1 || length > 30) {
+            return;
+        }
+
+        camera.position = new_position
+        mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
+    };
+
+
+
+    if ('onwheel' in document) {
+        // IE9+, FF17+, Ch31+
+        canvas.addEventListener("wheel", zoom);
+    } else if ('onmousewheel' in document) {
+        canvas.addEventListener("mousewheel", zoom);
+    } else {
+        // Firefox < 17
+        canvas.addEventListener("MozMousePixelScroll", zoom);
+    }
+    
+
 
 
 
