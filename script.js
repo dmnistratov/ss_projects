@@ -255,32 +255,32 @@ async function main() {
     };
 
 
-    let zoom = (event) => {
-        let camera_direction = vec3.create()
-        let new_position = vec3.create()
-        vec3.negate(camera_direction, camera.position)
-        vec3.scaleAndAdd(new_position, camera.position, camera_direction, -event.deltaY*0.001)
+//     let zoom = (event) => {
+//         let camera_direction = vec3.create()
+//         let new_position = vec3.create()
+//         vec3.negate(camera_direction, camera.position)
+//         vec3.scaleAndAdd(new_position, camera.position, camera_direction, -event.deltaY*0.001)
 
-        let length = vec3.length(new_position)
-        if(length < 1 || length > 30) {
-            return;
-        }
+//         let length = vec3.length(new_position)
+//         if(length < 1 || length > 30) {
+//             return;
+//         }
 
-        camera.position = new_position
-        mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
-    };
+//         camera.position = new_position
+//         mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
+//     };
 
 
 
-    if ('onwheel' in document) {
-        // IE9+, FF17+, Ch31+
-        canvas.addEventListener("wheel", zoom);
-    } else if ('onmousewheel' in document) {
-        canvas.addEventListener("mousewheel", zoom);
-    } else {
-        // Firefox < 17
-        canvas.addEventListener("MozMousePixelScroll", zoom);
-    }
+//     if ('onwheel' in document) {
+//         // IE9+, FF17+, Ch31+
+//         canvas.addEventListener("wheel", zoom);
+//     } else if ('onmousewheel' in document) {
+//         canvas.addEventListener("mousewheel", zoom);
+//     } else {
+//         // Firefox < 17
+//         canvas.addEventListener("MozMousePixelScroll", zoom);
+//     }
     
 
 
