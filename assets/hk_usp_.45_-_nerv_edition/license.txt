@@ -1,0 +1,11 @@
+Model Information:
+* title:	HK USP .45 - NERV Edition
+* source:	https://sketchfab.com/3d-models/hk-usp-45-nerv-edition-17450cc856904a24848e46e2981a9200
+* author:	Phrizee (https://sketchfab.com/phrizee)
+
+Model License:
+* license type:	CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
+* requirements:	Author must be credited. No commercial use.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "HK USP .45 - NERV Edition" (https://sketchfab.com/3d-models/hk-usp-45-nerv-edition-17450cc856904a24848e46e2981a9200) by Phrizee (https://sketchfab.com/phrizee) licensed under CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)

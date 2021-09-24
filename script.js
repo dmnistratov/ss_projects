@@ -6,13 +6,15 @@ const {mat2, mat3, mat4, vec2, vec3, vec4, quat} = glMatrix;
 
 function initWebGl(gl, importer) {
     gl.enable(gl.DEPTH_TEST)
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     //create textures
     for(let texture of importer.textures) {
         const gl_texture = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, gl_texture);
         gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, texture.magFilter);
-        gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, texture.magFilter );
+        gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, texture.minFilter);
         gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, texture.wrapT);
         gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, texture.wrapS);
         let image = importer.images[texture.source_index]
@@ -23,9 +25,10 @@ function initWebGl(gl, importer) {
 
 
     let meshes = []
-    let raw_meshes = importer.meshes
+    let raw_meshes = importer.renderable
 
-    for(let mesh of raw_meshes) {
+    for(let renderable of raw_meshes) {
+        let mesh = importer.meshes[renderable['meshIndex']]
         var vao = gl.createVertexArray();
         gl.bindVertexArray(vao);
 
@@ -50,18 +53,25 @@ function initWebGl(gl, importer) {
         gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 0, 0);
         gl.enableVertexAttribArray(2);
 
+        //texcoords1
+        if(mesh['texcoords1']) {
+            const texcoords1Buffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, texcoords1Buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh['texcoords1']), gl.STATIC_DRAW);
+            gl.vertexAttribPointer(3, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(3);   
+        }
+
         //indices
         const indexBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(mesh['indices']), gl.STATIC_DRAW);
-
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Int32Array(mesh['indices']), gl.STATIC_DRAW);
 
         meshes.push({
             'vao': vao,
-            'positions': posBuffer,
-            'indices':  indexBuffer,
             'numberOfIndices': mesh['indices'].length,
-            'material': mesh.material_index
+            'material': mesh.material_index,
+            'globalTransformation': renderable['globalTransformation']
         })
     }
 
@@ -97,6 +107,24 @@ function applyMaterial(gl, program, material_index, materials, textures) {
         gl.bindTexture(gl.TEXTURE_2D, texture.texture_index);
     }
 
+    // metallicRoughnessTexture
+    if(material.metallicRoughnessTexture !== undefined) {
+        let texture = textures[material.metallicRoughnessTexture]
+        let textureLocation = gl.getUniformLocation(program, "material.metallicRoughnessTexture");
+        gl.uniform1i(textureLocation, 2);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, texture.texture_index);
+    }   
+
+    // emissiveTexture
+    if(material.emissiveTexture !== undefined) {
+        let texture = textures[material.emissiveTexture]
+        let textureLocation = gl.getUniformLocation(program, "material.emissiveTexture");
+        gl.uniform1i(textureLocation, 3);
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, texture.texture_index);
+    }   
+
     // baseColorFactor
     {
         let location = gl.getUniformLocation(program, "material.baseColorFactor");
@@ -114,6 +142,38 @@ function applyMaterial(gl, program, material_index, materials, textures) {
         let location = gl.getUniformLocation(program, "material.normalTexcoord");
         gl.uniform1i(location, material.normalTexcoord) 
     }
+
+    // metallicRoughnessTexcoord
+    {
+        let location = gl.getUniformLocation(program, "material.metallicRoughnessTexcoord");
+        gl.uniform1i(location, material.metallicRoughnessTexcoord) 
+    }
+
+    // metallicFactor
+    {
+        let location = gl.getUniformLocation(program, "material.metallicFactor");
+        gl.uniform1f(location, material.metallicFactor) 
+    }
+
+    // roughnessFactor
+    {
+        let location = gl.getUniformLocation(program, "material.roughnessFactor");
+        gl.uniform1f(location, material.roughnessFactor) 
+    }
+
+    // emissiveFactor
+    {
+        let location = gl.getUniformLocation(program, "material.emissiveFactor");
+        console.log(material.emissiveFactor)
+        gl.uniform3fv(location, material.emissiveFactor) 
+    }
+
+    // emissiveTexcoord
+    {
+        let location = gl.getUniformLocation(program, "material.emissiveTexcoord");
+        gl.uniform1i(location, material.emissiveTexcoord) 
+    }
+
 }
 
 
@@ -121,7 +181,7 @@ function applyMaterial(gl, program, material_index, materials, textures) {
 
 var start_time = undefined
 var current_angle = 0
-var degrees_per_second = 45.0;
+var degrees_per_second = 25.0;
 
 function draw(gl, program, buffers, importer, uniforms) {
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -131,32 +191,25 @@ function draw(gl, program, buffers, importer, uniforms) {
 
 
     //  animation
-    // if(start_time == undefined) {
-    //     start_time = new Date().getTime();
-    // }
-    // var elapsed_time = new Date().getTime() - start_time;
-    // current_angle = degrees_per_second*(elapsed_time/1000)
-    // mat4.fromYRotation(uniforms.Model, glMatrix.glMatrix.toRadian(current_angle))
+    if(start_time == undefined) {
+        start_time = new Date().getTime();
+    }
 
-    // if(current_angle == 360) {
-    //     start_time = new Date().getTime();
-    //     current_angle = 0
-    // }
+    let rotate = mat4.create()
+    var elapsed_time = new Date().getTime() - start_time;
+    current_angle = degrees_per_second*(elapsed_time/1000)
+    mat4.fromYRotation(rotate, glMatrix.glMatrix.toRadian(current_angle))
+
+    if(current_angle == 360) {
+        start_time = new Date().getTime();
+        current_angle = 0
+    }
 
 
     //set unfiorms
-    //  color
-    var u_color = gl.getUniformLocation(program, "color");
-    gl.uniform3fv(u_color, [124/255,252/255,0]);
-
-
-    //  camera direction
-    var u_camera = gl.getUniformLocation(program, "cameraDirection");
-    gl.uniform3fv(u_camera, uniforms.camera.direction) 
-
-    //  model
-    var u_model = gl.getUniformLocation(program, "Model");
-    gl.uniformMatrix4fv(u_model, false, uniforms.Model) 
+    // camera position
+    var u_camera = gl.getUniformLocation(program, "cameraPosition");
+    gl.uniform3fv(u_camera, uniforms.camera.position) 
 
     //  view
     var u_view = gl.getUniformLocation(program, "View");
@@ -168,13 +221,49 @@ function draw(gl, program, buffers, importer, uniforms) {
 
     // draw
     for(let buffer of buffers) {
+        let matrix = mat4.create()
+        mat4.mul(matrix, uniforms.Model, buffer.globalTransformation)
+        mat4.mul(matrix, rotate, matrix)
+
+        var u_model = gl.getUniformLocation(program, "Model");
+        gl.uniformMatrix4fv(u_model, false, matrix) 
+
         applyMaterial(gl, program, buffer.material, importer.materials, importer.textures)
+
         gl.bindVertexArray(buffer.vao);
-        gl.drawElements(gl.TRIANGLES, buffer.numberOfIndices, gl.UNSIGNED_SHORT, 0);
+        gl.drawElements(gl.TRIANGLES, buffer.numberOfIndices, gl.UNSIGNED_INT, 0);
     }
 
+    
     requestAnimationFrame(function() {draw(gl, program, buffers, importer, uniforms)});
 }
+
+
+
+
+
+function getSceneRootScale(scene_aabb) {
+    let max_size = Math.max(scene_aabb.width, scene_aabb.height)
+    max_size = Math.max(max_size, scene_aabb.depth)
+
+    let sceneRootScale = mat4.create()
+    mat4.fromScaling(sceneRootScale, vec4.fromValues(2/scene_aabb.width*scene_aabb.width/max_size, 
+                                                     2/scene_aabb.height*scene_aabb.height/max_size, 
+                                                     2/scene_aabb.depth*scene_aabb.depth/max_size)
+    )
+
+    let center = vec3.fromValues(
+        (scene_aabb['maxx']+scene_aabb['minx'])/2,
+        (scene_aabb['maxy']+scene_aabb['miny'])/2,
+        (scene_aabb['maxz']+scene_aabb['minz'])/2
+    )
+
+    vec3.negate(center, center)
+    mat4.translate(sceneRootScale,sceneRootScale, center)
+
+    return sceneRootScale
+}
+
 
 
 
@@ -190,7 +279,6 @@ async function main() {
     }
   
 
-    canvas.ondragstart = () => false
     // resize canvas/viewport
     window.addEventListener('resize', () => {
         canvas.width = window.innerWidth
@@ -200,7 +288,7 @@ async function main() {
 
 
     let camera_pos = vec3.create()
-    vec3.set(camera_pos, 1, 2, 3)
+    vec3.set(camera_pos,2,1,2)
 
     let camera_direction = vec3.create()
     vec3.negate(camera_direction, camera_pos)
@@ -212,14 +300,12 @@ async function main() {
 
     // model
     let Model = mat4.create();
-    //  view
+    // view
     let View = mat4.create()
     mat4.lookAt(View, camera.position, [0,0,0], [0,1,0])
     // projection
     let Projection = mat4.create()
     mat4.perspective(Projection, glMatrix.glMatrix.toRadian(45.0), canvas.width/canvas.height, 0.5, 200.0)
-
-
 
 
     let uniforms = {
@@ -230,6 +316,11 @@ async function main() {
     };
 
 
+
+
+
+
+
     let mousePrevX;
     let mousePrevY;
 
@@ -237,7 +328,7 @@ async function main() {
         let dx = -(mousePrevX ? event.screenX - mousePrevX : 0)*0.01
         let dy = (mousePrevY ? event.screenY - mousePrevY : 0)*0.01
         let radius = vec3.length(camera.position)
-        
+
         let theta = Math.asin(camera.position[1]/radius)
         theta += dy
         theta = Math.min(Math.max(theta, -Math.PI/2), Math.PI/2);
@@ -253,6 +344,7 @@ async function main() {
         mousePrevX = event.screenX;
         mousePrevY = event.screenY;
     };
+
 
 
     let zoom = (event) => {
@@ -285,12 +377,14 @@ async function main() {
 
 
 
-
     canvas.addEventListener('pointerdown', function(event) {
-        if(event.button == 0) {
+        if(event.button == 0 && event.isPrimary) { // single touch
             mousePrevX = 0;
             mousePrevY = 0;
             canvas.addEventListener('pointermove', rotateCamera)
+        }
+        else if(event.button == 0 && !event.isPrimary) { // multi-touch
+            // TODO
         }
     })
 
@@ -303,11 +397,16 @@ async function main() {
 
 
     let importer = new gltf2_importer()
-    await importer.import("./assets/ruby_rose/scene.gltf")
-    let shaderProgram = await Shader.loadFromFile(gl, "shaders/main.vert", "shaders/blinn-phong.frag")
+    await importer.import("./assets/hk_usp_.45_-_nerv_edition/scene.gltf")
+    let shaderProgram = await Shader.loadFromFile(gl, "shaders/main.vert", "shaders/pbr.frag")
     let buffers = initWebGl(gl, importer)
+
+    
+    let sceneRootScale = getSceneRootScale(importer.scene_aabb)
+    mat4.mul(uniforms.Model, uniforms.Model, sceneRootScale)
+
+
     draw(gl, shaderProgram, buffers, importer, uniforms)
 }
   
-
 window.onload = main;
