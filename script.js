@@ -575,22 +575,22 @@ async function main() {
 
 
     //  GUI
-    var gui = new dat.GUI();
-    gui.domElement.id = 'gui';
-    var debugChannels = {'Debug Channels': 'None'};
-    let channels =  [
-        'None', 'Base Color', 'Metallic', 'Roughness', 
-        'Normal', 'F0', 'F_Schlick','V_SmithGGXCorrelated', 
-        'D_GGX', 'Diffuse', 'Specular', 'Emissive',
-        'Alpha'
-    ]
+//     var gui = new dat.GUI();
+//     gui.domElement.id = 'gui';
+//     var debugChannels = {'Debug Channels': 'None'};
+//     let channels =  [
+//         'None', 'Base Color', 'Metallic', 'Roughness', 
+//         'Normal', 'F0', 'F_Schlick','V_SmithGGXCorrelated', 
+//         'D_GGX', 'Diffuse', 'Specular', 'Emissive',
+//         'Alpha'
+//     ]
 
-    let debugChannelsController = gui.add(debugChannels, 'Debug Channels', channels)
+//     let debugChannelsController = gui.add(debugChannels, 'Debug Channels', channels)
 
-    debugChannelsController.onChange((value) => {
-        let location = gl.getUniformLocation(shaderProgram, "debugValue");
-        gl.uniform1f(location, channels.indexOf(value)) 
-    })
+//     debugChannelsController.onChange((value) => {
+//         let location = gl.getUniformLocation(shaderProgram, "debugValue");
+//         gl.uniform1f(location, channels.indexOf(value)) 
+//     })
 
 }
  
