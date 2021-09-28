@@ -10,3 +10,8 @@ html, body {
     display: block;
     touch-action: none;
 }
+
+
+#gui {
+    margin-top: 80px;
+}

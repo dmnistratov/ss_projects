@@ -2,6 +2,13 @@ const {mat2, mat3, mat4, vec2, vec3, vec4, quat} = glMatrix;
 
 export class gltf2_importer {
     constructor() {
+        
+        this.pathToFile = ''
+
+        this.scenes = []
+        this.skins = []
+
+
         this.meshes = []
         this.component_type_map = {
             5120: 1,
@@ -25,12 +32,16 @@ export class gltf2_importer {
 
 
     async import(path) {
-        this.path = path
-        this.buffers = []
-
-        //read gltf file
+        this.pathToFile = path
+        
         let response = await fetch(path)
         this.json_file = await response.json()
+
+        this.scenes = this.json_file['scenes']
+
+
+
+        this.buffers = []
 
         //read images/buffers
         let p_images = this.readImages(this.json_file['images'])
@@ -42,7 +53,7 @@ export class gltf2_importer {
         this.textures = this.readTextures(this.json_file['textures'])
         this.materials = this.readMaterials(this.json_file['materials'])
         this.readMeshes(this.json_file['meshes'])
-
+        this.readSkins(this.json_file['skins'])
 
         this.nodes = new Array(this.json_file['scenes'].length)
         this.renderable = []
@@ -53,25 +64,36 @@ export class gltf2_importer {
     }
 
 
+    readSkins(json_skins) {
+        if(!json_skins) return
+        for(let skin of json_skins) {
+            let inverseBindMatrices = this.readAccessor(skin['inverseBindMatrices'])  
+            this.skins.push({
+                'inverseBindMatrices': inverseBindMatrices,
+                'joints': skin['joints'],
+                'skeleton': skin['skeleton']
+            })
+        }
+    }
 
-    readSceneGraph(node_index, parent_index = -1, offset = 1) {
+
+    readSceneGraph(node_index, parent = -1) {
         let json_node = this.json_file['nodes'][node_index]
-        let transformation = this.readTransformation(json_node)
+        let localTransformation = this.readLocalTransformation(json_node)
         let globalTransformation = mat4.create()
 
 
-        if(parent_index != -1) {
-            mat4.mul(globalTransformation, this.nodes[parent_index]['globalTransformation'], transformation)
+        if(parent != -1) {
+            mat4.mul(globalTransformation, this.nodes[parent]['globalTransformation'], localTransformation)
         }
         else {
-            globalTransformation = transformation
+            globalTransformation = localTransformation
         }
-
 
 
         let node = {
-            'parentIndex': parent_index,
-            'localTransformation': transformation,
+            'parent': parent,
+            'localTransformation': localTransformation,
             'globalTransformation': globalTransformation
         }
 
@@ -79,8 +101,13 @@ export class gltf2_importer {
         if(json_node['mesh'] !== undefined) {
             let aabb = this.readMeshAABB(json_node['mesh'], globalTransformation)
             node['aabb'] = aabb
-            node['meshIndex'] =  json_node['mesh']
+            node['mesh'] =  json_node['mesh']
             this.renderable.push(node)
+        }
+
+
+        if(json_node['skin'] !== undefined) {
+            node['skin'] =  json_node['skin']
         }
 
         this.nodes[node_index] = node
@@ -124,28 +151,16 @@ export class gltf2_importer {
     }
 
 
-    readTransformation(node) {
+    readLocalTransformation(node) {
         let matrix = mat4.create()
         if(node['matrix']) {
             let m = node['matrix']
- 
             matrix = mat4.fromValues(
-                m[0],
-                m[1],
-                m[2],
-                m[3],
-                m[4],
-                m[5],
-                m[6],
-                m[7],
-                m[8],
-                m[9],
-                m[10],
-                m[11],
-                m[12],
-                m[13],
-                m[14],
-                m[15])
+                m[0], m[1], m[2], m[3],
+                m[4] ,m[5] ,m[6] ,m[7],
+                m[8], m[9], m[10], m[11], 
+                m[12], m[13], m[14], m[15]
+            )
 
         }
         else {
@@ -206,15 +221,16 @@ export class gltf2_importer {
             let metallicRoughnessTexture;
             let metallicFactor = 1;
             let roughnessFactor = 1;
-            let baseColorFactor;
-            let emissiveFactor = json_material['emissiveFactor'] ?  json_material['emissiveFactor'] : [1,1,1];
+            let baseColorFactor = [1,1,1,1];
+            let emissiveFactor = json_material['emissiveFactor'] ?  json_material['emissiveFactor'] : [0,0,0];
             if(json_material['pbrMetallicRoughness']) {
                 baseColorTexture = json_material['pbrMetallicRoughness']['baseColorTexture']
                 metallicRoughnessTexture = json_material['pbrMetallicRoughness']['metallicRoughnessTexture']
-                metallicFactor = json_material['pbrMetallicRoughness']['metallicFactor']
+                metallicFactor = json_material['pbrMetallicRoughness']['metallicFactor'] 
                 roughnessFactor = json_material['pbrMetallicRoughness']['roughnessFactor']
                 baseColorFactor = json_material['pbrMetallicRoughness']['baseColorFactor']
             }
+            
 
 
             let emissiveTexture = json_material['emissiveTexture'] 
@@ -228,15 +244,16 @@ export class gltf2_importer {
                 'baseColorTexture': baseColorTexture ?  baseColorTexture['index'] : undefined,
                 'normalTexture': normalTexture ? normalTexture['index'] : undefined,
                 'metallicRoughnessTexture': metallicRoughnessTexture ? metallicRoughnessTexture['index'] : undefined,
-                'metallicFactor' : metallicFactor ? metallicFactor : 1,
-                'roughnessFactor' : roughnessFactor ? roughnessFactor : 1,
+                'metallicFactor' : metallicFactor != undefined  ? metallicFactor : 1,
+                'roughnessFactor' : roughnessFactor != undefined ? roughnessFactor : 1,
                 'emissiveTexture': emissiveTexture ? emissiveTexture['index'] : undefined,
                 'emissiveTexcoord' : emissiveTexcoord,
                 'emissiveFactor': emissiveFactor,
                 'baseColorTexcoord': baseColorTexcoord,
                 'normalTexcoord': normalTexcoord,
                 'metallicRoughnessTexcoord': metallicRoughnessTexcoord,
-                'baseColorFactor': baseColorFactor ? baseColorFactor : [1, 1, 1, 1]
+                'baseColorFactor': baseColorFactor ? baseColorFactor : [1, 1, 1, 1],
+                "alphaMode": json_material['alphaMode'] ? json_material['alphaMode'] : undefined
             })
         }
 
@@ -255,8 +272,7 @@ export class gltf2_importer {
                 'minFilter': sampler['minFilter'] ? sampler['minFilter'] : 9729,
                 'wrapS': sampler['wrapS'] ? sampler['wrapS'] : 10497,
                 'wrapT': sampler['wrapT'] ? sampler['wrapT'] : 10497,
-                'name': source['name'],
-                'source_index': json_texture['source']
+                'source': json_texture['source']
             })
         }
         return textures
@@ -265,7 +281,7 @@ export class gltf2_importer {
 
     async readImages(json_images) {
         if(!json_images) return;
-        let path_to_asset = this.path.substring(0, this.path.lastIndexOf("/"));
+        let path_to_asset = this.pathToFile.substring(0, this.pathToFile.lastIndexOf("/"));
         let images = []
         for(let json_image of json_images) {
             images.push(
@@ -289,9 +305,17 @@ export class gltf2_importer {
                 let vertices = this.readAccessor(json_primitive['attributes']['POSITION'])
                 let normals = this.readAccessor(json_primitive['attributes']['NORMAL'])
                 let texcoords0 = this.readAccessor(json_primitive['attributes']['TEXCOORD_0'])
-                let texcoords1 = undefined
+                let texcoords1;
+                let joints0;
+                let weights0;
                 if('TEXCOORD_1' in json_primitive['attributes']) {
                     texcoords1 = this.readAccessor(json_primitive['attributes']['TEXCOORD_1'])
+                }
+                if('JOINTS_0' in json_primitive['attributes']) {
+                    joints0 = this.readAccessor(json_primitive['attributes']['JOINTS_0'])
+                }
+                if('WEIGHTS_0' in json_primitive['attributes']) {
+                    weights0 = this.readAccessor(json_primitive['attributes']['WEIGHTS_0'])
                 }
 
                 let indices = this.readAccessor(json_primitive['indices'])
@@ -303,7 +327,10 @@ export class gltf2_importer {
                     'normals': normals,
                     'texcoords0': texcoords0,
                     'texcoords1': texcoords1,
-                    'material_index': material_index
+                    'material_index': material_index,
+                    'joints0': joints0,
+                    'weights0': weights0,
+                    'mode': json_primitive['mode'] ? json_primitive['mode'] : 4
                 })
             }
         }
@@ -340,7 +367,7 @@ export class gltf2_importer {
 
 
     async readBuffers(json_buffers) {
-        let path_to_asset = this.path.substring(0, this.path.lastIndexOf("/"));
+        let path_to_asset = this.pathToFile.substring(0, this.pathToFile.lastIndexOf("/"));
         let uris = []
         for(let json_buffer of json_buffers) {
             uris.push(fetch(path_to_asset + '/' + json_buffer['uri']))

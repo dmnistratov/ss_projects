@@ -5,7 +5,7 @@ precision highp float;
 in vec3 normal;
 in vec3 position;
 in vec2 texcoords[2];
-
+in vec3 debugColor;
 out vec4 fragColor;
 
 
@@ -27,7 +27,7 @@ struct Material {
 
 uniform Material material;
 uniform vec3 cameraPosition;
-
+uniform float debugValue;
 
 //Tonemapping --------------------------------------------------------------------------
 const float gamma = 2.2f;
@@ -71,7 +71,7 @@ float D_GGX(float NdotH, float a) {
 }
 
 vec3 F_Schlick(float u, vec3 f0) {
-    return f0 + (vec3(1.0) - f0) * pow(1.0 - u, 5.0);
+    return f0 + (vec3(1.0) - f0) * pow(clamp(1.0 - u, 0.0, 1.0), 5.0);
 }
 
 float V_SmithGGXCorrelated(float NdotV, float NdotL, float a) {
@@ -102,7 +102,6 @@ vec3 getNormal() {
 
 
 
-
 void main(void) {
     vec4 baseColor = material.baseColorFactor;
     if(material.baseColorTexcoord != -1) {
@@ -114,9 +113,12 @@ void main(void) {
     float roughness = material.roughnessFactor;
     if(material.metallicRoughnessTexcoord != -1) {
         vec4 metallicRoughnessTexture = (texture(material.metallicRoughnessTexture, texcoords[material.metallicRoughnessTexcoord]));
-        metallic *= metallicRoughnessTexture.b;
-        roughness *= metallicRoughnessTexture.g;
+        metallic = metallicRoughnessTexture.b;
+        roughness = metallicRoughnessTexture.g;
     }
+
+    metallic = clamp(metallic, 0.0, 1.0);
+
 
     vec3 n;
     if(material.normalTexcoord != -1) {
@@ -147,20 +149,62 @@ void main(void) {
 
     vec3 f_diffuse = vec3(0.0);
     vec3 f_specular = vec3(0.0);
+    vec3 diffuse = mix(baseColor.rgb * (vec3(1.0) - F0),  vec3(0.0), metallic);
     if(NdotL > 0.0) {
-        f_diffuse = NdotL * (baseColor.rgb / M_PI) * (vec3(1.0f) - F) * (1.0f - metallic); //Lambertian
+        f_diffuse = (1.0 - F) * (diffuse/ M_PI); // Lambertian
         f_specular = NdotL*D*F*G; //Cook-Torrance
     }
 
 
-    vec3 emissiveFactor = material.emissiveFactor;
-    vec3 f_emissive = vec3(0.0);
+    vec3 f_emissive = material.emissiveFactor;
     if(material.emissiveTexcoord != -1) {
-        f_emissive = SRGBtoLINEAR(texture(material.emissiveTexture,  texcoords[material.emissiveTexcoord])).rgb;
+        f_emissive *= (texture(material.emissiveTexture,  texcoords[material.emissiveTexcoord])).rgb;
     }
 
 
-    vec3 ambient = baseColor.rgb*0.3f;
-    vec3 color = toneMapUncharted(vec3(ambient + f_diffuse + f_specular + f_emissive));
-    fragColor = vec4(vec3(color), baseColor.a);
+    vec3 ambient = baseColor.rgb*0.2f;
+    vec3 color = (vec3(ambient + f_diffuse + f_specular + f_emissive));
+    fragColor = vec4(toneMapUncharted(vec3(color)), baseColor.a);
+
+
+
+
+
+
+    if(debugValue == 1.0f) {
+        fragColor = baseColor;
+    }
+    else if(debugValue == 2.0f) {
+        fragColor = vec4(vec3(metallic), baseColor.a);
+    }
+    else if(debugValue == 3.0f) {
+        fragColor = vec4(vec3(roughness), baseColor.a);
+    }
+    else if(debugValue == 4.0f) {
+        fragColor = vec4(vec3(n), baseColor.a);
+    }
+    else if(debugValue == 5.0f) {
+        fragColor = vec4(vec3(F0), baseColor.a);
+    }
+    else if(debugValue == 6.0f) {
+        fragColor = vec4(vec3(F), baseColor.a);
+    }
+    else if(debugValue == 7.0f) {
+        fragColor = vec4(vec3(G), baseColor.a);
+    }
+    else if(debugValue == 8.0f) {
+        fragColor = vec4(vec3(D), baseColor.a);
+    }
+    else if(debugValue == 9.0f) {
+        fragColor = vec4(vec3(diffuse), baseColor.a);
+    }
+    else if(debugValue == 10.0f) {
+        fragColor = vec4(vec3(f_specular), baseColor.a);
+    }
+    else if(debugValue == 11.0f) {
+        fragColor = vec4(vec3(f_emissive), 1.0f);
+    }
+    else if(debugValue == 12.0f) {
+        fragColor = vec4(vec3(baseColor.a), baseColor.a);
+    }
 }
