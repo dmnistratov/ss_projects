@@ -272,8 +272,8 @@ function setSkin(gl, program, skin) {
 
     let texture = skin.texture
     let textureLocation = gl.getUniformLocation(program, "joints");
-    gl.uniform1i(textureLocation, 10);
-    gl.activeTexture(gl.TEXTURE10);
+    gl.uniform1i(textureLocation, 4);
+    gl.activeTexture(gl.TEXTURE0 + 4);
     gl.bindTexture(gl.TEXTURE_2D, texture);   
 }
 
