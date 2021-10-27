@@ -21,8 +21,8 @@ uniform mat4 Projection;
 
 
 out vec3 debugColor;
-
-
+out vec4 joint_indices;
+out vec4 joint_weights;
 
 uniform float numBones;
 uniform sampler2D joints;
@@ -51,7 +51,7 @@ void main(void) {
     vec3 vertexPosition;
 
 
-    if(skinIndex != -1) {
+    if(numBones != 0.0) {
         mat4 jointTransformation = (getBoneMatrix(aJoints0[0])  * aWeights0[0] +
                 getBoneMatrix(aJoints0[1]) * aWeights0[1] +
                 getBoneMatrix(aJoints0[2]) * aWeights0[2] +
@@ -71,4 +71,7 @@ void main(void) {
     texcoords[0] = aTexcoord0;
     texcoords[1] = aTexcoord1;
     debugColor = vec3(aWeights0);
+
+    joint_indices = aJoints0;
+    joint_weights = aWeights0;
 }

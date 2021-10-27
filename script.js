@@ -1,387 +1,182 @@
-import { gltf2_importer } from "./gltf2io.js";
+import { gltf2io } from "./gltf2io.js";
 import { Shader } from "./shader.js";
 const {mat2, mat3, mat4, vec2, vec3, vec4, quat} = glMatrix;
 
 
 
-function createTextures(gl, texturesInfo, images) {
-    for(let texture of texturesInfo) {
-        const glTexture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, glTexture);
-        gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, texture.magFilter);
-        gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, texture.minFilter);
-        gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, texture.wrapT);
-        gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, texture.wrapS);
-        let image = images[texture.source]
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-        gl.generateMipmap(gl.TEXTURE_2D)
-        texture.texture_index = glTexture 
-    }
-}
 
 
+async function createTextures(gl, textures) {
+    let promises = []
+    for(let gltfTexture of textures) {
+        let imagePath = gltfTexture.source
+        let image = new Image()
+        image.src = imagePath
 
-function createSkins(gl, importedSkins, nodes) {
-    let skins = []
-
-    for(let skin of importedSkins) {
-        let inverseBindMatrices = skin['inverseBindMatrices']
-        let joints = new Float32Array(skin.joints.length*16)
-
-        let skinRootIndex = nodes[skin.skeleton].parent
-        let globalInverse = nodes[skinRootIndex].globalTransformation
-        mat4.invert(globalInverse, globalInverse)
-
-        for(let joint_index in skin.joints) {
-            let inverseBindMatrix = mat4.fromValues.apply(this, inverseBindMatrices.slice(joint_index*16, joint_index*16+16))
-            let nodeGlobal = nodes[skin.joints[joint_index]].globalTransformation
-
-            mat4.mul(nodeGlobal, globalInverse, nodeGlobal)
-            mat4.mul(nodeGlobal, nodeGlobal, inverseBindMatrix)
-
-            for(let j=0; j<16; j++) {
-                joints[joint_index*16 + j] = nodeGlobal[j]
-            }
-        } 
-
-        var jointsTexture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, jointsTexture);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, skin.joints.length, 0, gl.RGBA, gl.FLOAT, joints);
-
-        skins.push({
-            'texture': jointsTexture,
-            'count': skin.joints.length
-        })
+        promises.push(new Promise((resolve, reject) => {
+            image.addEventListener('load', function() {
+                resolve(this);
+            });
+        }))
     }
 
-    return skins
-}
-
-
-
-
-function initWebGl(gl, importer) {
-    gl.enable(gl.DEPTH_TEST)
-    gl.depthFunc(gl.LEQUAL);
-    gl.enable(gl.BLEND);
-    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.blendEquation(gl.FUNC_ADD);
-
-    createTextures(gl, importer.textures, importer.images)
-
-    let skins = createSkins(gl, importer.skins, importer.nodes)
-
-
-
-
-    let transparent = []
-    let opaque = []
-
-    for(let renderable of importer.renderable) {
-        let mesh = importer.meshes[renderable['mesh']]
-        var vao = gl.createVertexArray();
-        gl.bindVertexArray(vao);
-
-        //positions
-        const posBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh['vertices']), gl.STATIC_DRAW);
-        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-        gl.enableVertexAttribArray(0);
-
-        //normals
-        const normalBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh['normals']), gl.STATIC_DRAW);
-        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
-        gl.enableVertexAttribArray(1);
-
-        //texcoords0
-        const texcoords0Buffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, texcoords0Buffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh['texcoords0']), gl.STATIC_DRAW);
-        gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 0, 0);
-        gl.enableVertexAttribArray(2);
-
-        //texcoords1
-        if(mesh['texcoords1']) {
-            const texcoords1Buffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, texcoords1Buffer);
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh['texcoords1']), gl.STATIC_DRAW);
-            gl.vertexAttribPointer(3, 2, gl.FLOAT, false, 0, 0);
-            gl.enableVertexAttribArray(3);   
+    return Promise.all(promises).then(images => {
+        let webGlTextures = []
+        for(let index in images) {
+            var texture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, textures[index].sampler.wrapS);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, textures[index].sampler.wrapT);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, textures[index].sampler.minFilter);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, textures[index].sampler.magFilter);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, images[index]);
+            gl.generateMipmap(gl.TEXTURE_2D)
+            webGlTextures.push(texture);
         }
 
-        // joints
-        if(mesh['joints0']) {
-            const joints0Buffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, joints0Buffer);
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh['joints0']), gl.STATIC_DRAW);
-            gl.vertexAttribPointer(4, 4, gl.FLOAT, false, 0, 0);
-            gl.enableVertexAttribArray(4);   
-        }
-
-        // weights
-        if(mesh['weights0']) {
-            const weights0Buffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, weights0Buffer);
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh['weights0']), gl.STATIC_DRAW);
-            gl.vertexAttribPointer(5, 4, gl.FLOAT, false, 0, 0);
-            gl.enableVertexAttribArray(5);   
-        }
-
-        //indices
-        const indexBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Int32Array(mesh['indices']), gl.STATIC_DRAW);
-
-
-
-        let mesh_info = {
-            'vao': vao,
-            'numberOfIndices': mesh['indices'].length,
-            'material': mesh.material_index,
-            'globalTransformation': renderable['globalTransformation'],
-            'mode': mesh.mode,
-            'skin': renderable['skin']
-        }
-
-        if(importer.materials[mesh.material_index]['alphaMode'] !== undefined) {
-            transparent.push(mesh_info)
-        }
-        else {
-            opaque.push(mesh_info)
-        }
-    }
-
-
-    return {
-        'opaque': opaque,
-        'transparent': transparent,
-        'skins': skins
-    }
-}
-
-
-
-
-
-
-
-
-
-function applyMaterial(gl, program, material_index, materials, textures) {
-    let material = materials[material_index]
-
-    // baseColorTexture
-    if(material.baseColorTexture !== undefined) {
-        let texture = textures[material.baseColorTexture]
-        let textureLocation = gl.getUniformLocation(program, "material.baseColorTexture");
-        gl.uniform1i(textureLocation, 0);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, texture.texture_index);
-    }
-
-    // normalTexture
-    if(material.normalTexture !== undefined) {
-        let texture = textures[material.normalTexture]
-        let textureLocation = gl.getUniformLocation(program, "material.normalTexture");
-        gl.uniform1i(textureLocation, 1);
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, texture.texture_index);
-    }
-
-    // metallicRoughnessTexture
-    if(material.metallicRoughnessTexture !== undefined) {
-        let texture = textures[material.metallicRoughnessTexture]
-        let textureLocation = gl.getUniformLocation(program, "material.metallicRoughnessTexture");
-        gl.uniform1i(textureLocation, 2);
-        gl.activeTexture(gl.TEXTURE2);
-        gl.bindTexture(gl.TEXTURE_2D, texture.texture_index);
-    }   
-
-    // emissiveTexture
-    if(material.emissiveTexture !== undefined) {
-        let texture = textures[material.emissiveTexture]
-        let textureLocation = gl.getUniformLocation(program, "material.emissiveTexture");
-        gl.uniform1i(textureLocation, 3);
-        gl.activeTexture(gl.TEXTURE3);
-        gl.bindTexture(gl.TEXTURE_2D, texture.texture_index);
-    }   
-
-    // baseColorFactor
-    {
-        let location = gl.getUniformLocation(program, "material.baseColorFactor");
-        gl.uniform4fv(location, material.baseColorFactor) 
-    }
-
-    // baseColorTexcoord
-    {
-        let location = gl.getUniformLocation(program, "material.baseColorTexcoord");
-        gl.uniform1i(location, material.baseColorTexcoord) 
-    }
-
-    // normalTexcoord
-    {
-        let location = gl.getUniformLocation(program, "material.normalTexcoord");
-        gl.uniform1i(location, material.normalTexcoord) 
-    }
-
-    // metallicRoughnessTexcoord
-    {
-        let location = gl.getUniformLocation(program, "material.metallicRoughnessTexcoord");
-        gl.uniform1i(location, material.metallicRoughnessTexcoord) 
-    }
-
-    // metallicFactor
-    {
-        let location = gl.getUniformLocation(program, "material.metallicFactor");
-        gl.uniform1f(location, material.metallicFactor) 
-    }
-
-    // roughnessFactor
-    {
-        let location = gl.getUniformLocation(program, "material.roughnessFactor");
-        gl.uniform1f(location, material.roughnessFactor) 
-    }
-
-    // emissiveFactor
-    {
-        let location = gl.getUniformLocation(program, "material.emissiveFactor");
-        gl.uniform3fv(location, material.emissiveFactor) 
-    }
-
-    // emissiveTexcoord
-    {
-        let location = gl.getUniformLocation(program, "material.emissiveTexcoord");
-        gl.uniform1i(location, material.emissiveTexcoord) 
-    }
-
-}
-
-
-
-
-function setSkin(gl, program, skin) {
-    let location = gl.getUniformLocation(program, "numBones");
-    gl.uniform1f(location, skin.count) 
-
-    let texture = skin.texture
-    let textureLocation = gl.getUniformLocation(program, "joints");
-    gl.uniform1i(textureLocation, 4);
-    gl.activeTexture(gl.TEXTURE0 + 4);
-    gl.bindTexture(gl.TEXTURE_2D, texture);   
-}
-
-
-
-function sortTransparentMeshesByDepth(meshes, view) {
-    meshes.transparent.sort((a,b) => {
-        let aPos = vec3.create()
-        let bPos = vec3.create()
-        let amatrix = mat4.create()
-        let bmatrix = mat4.create()
-        mat4.mul(amatrix, view, a.globalTransformation)
-        mat4.mul(bmatrix, view, b.globalTransformation)
-
-        mat4.getTranslation(aPos, amatrix)
-        mat4.getTranslation(bPos, bmatrix)
-        
-        return bPos[2] - aPos[2]
+        return webGlTextures
     })
 }
 
 
 
-function updateUniforms(gl, program, uniforms) {
-    // camera position
-    var u_camera = gl.getUniformLocation(program, "cameraPosition");
-    gl.uniform3fv(u_camera, uniforms.camera.position) 
+function createSkinTextures(gl, gltfModel) {
+    for(let skin of gltfModel.skins) {
+        let root = gltfModel.nodes[gltfModel.nodes[skin.skeleton].parent]
+        let rootTranform = mat4.fromValues.apply(null, root.globalTransformation)
+        mat4.invert(rootTranform, rootTranform)
 
-    //  view
-    var u_view = gl.getUniformLocation(program, "View");
-    gl.uniformMatrix4fv(u_view, false, uniforms.View) 
+        let joints = []
 
-    // projection
-    var u_projection = gl.getUniformLocation(program, "Projection");
-    gl.uniformMatrix4fv(u_projection, false, uniforms.Projection) 
-}
+        for(let jointIndex in skin.joints) {
+            let jointNode = gltfModel.nodes[skin.joints[jointIndex]]
+            let inverseBindMatrix = mat4.fromValues.apply(null, skin.inverseBindMatrices.buffer.slice(jointIndex*16, jointIndex*16+16))
 
+            let jointTransform = mat4.create()
+            mat4.mul(jointTransform, jointNode.globalTransformation, inverseBindMatrix)
+            mat4.mul(jointTransform, rootTranform, jointTransform)
 
-
-function drawMeshes(gl, program, uniforms, meshes, materials, textures, skins) {
-    for(let mesh of meshes) {
-        if(mesh['skin'] !== undefined) {
-            let location = gl.getUniformLocation(program, "skinIndex");
-            gl.uniform1i(location, mesh['skin']) 
-            setSkin(gl, program, skins[mesh['skin']])
-        }
-        else {
-            let location = gl.getUniformLocation(program, "skinIndex");
-            gl.uniform1i(location, -1)    
+            joints.push.apply(joints, jointTransform)
         }
 
-        let matrix = mat4.create()
-        mat4.mul(matrix, uniforms.Model, mesh.globalTransformation)
-
-        var u_model = gl.getUniformLocation(program, "Model");
-        gl.uniformMatrix4fv(u_model, false, matrix) 
-
-        applyMaterial(gl, program, mesh.material, materials, textures)
-
-        gl.bindVertexArray(mesh.vao);
-        gl.drawElements(gl.TRIANGLES, mesh.numberOfIndices, gl.UNSIGNED_INT, 0);
+        console.log(joints)
+        var skinTexture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, skinTexture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, skin.joints.length, 0, gl.RGBA, gl.FLOAT, new Float32Array(joints));
+        skin.texture = skinTexture
     }
 }
 
 
 
-function draw(gl, program, meshes, importer, uniforms) {
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    gl.useProgram(program);
-    updateUniforms(gl, program, uniforms)
+async function initWebGl(gl, gltfModel) {
 
-    //opaque
-    drawMeshes(gl, program, uniforms, meshes.opaque, importer.materials, importer.textures, meshes.skins)
+    if(gltfModel.textures) {
+        let webGlTextures = await createTextures(gl, gltfModel.textures)
+        for(let gltfMaterial of gltfModel.materials) {
 
-    sortTransparentMeshesByDepth(meshes, uniforms.View)
+            if(gltfMaterial.pbrMetallicRoughness.baseColorTexture) {
+                gltfMaterial.pbrMetallicRoughness.baseColorTexture.webGlTexture = webGlTextures[gltfMaterial.pbrMetallicRoughness.baseColorTexture.index]
+            }
+            if(gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture) {
+                gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.webGlTexture = webGlTextures[gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index]
+            }
 
-    //transparent
-    drawMeshes(gl, program, uniforms, meshes.transparent, importer.materials, importer.textures, meshes.skins)
+            if(gltfMaterial.normalTexture) {
+                gltfMaterial.normalTexture.webGlTexture = webGlTextures[gltfMaterial.normalTexture.index]
+            }
+            if(gltfMaterial.emissiveTexture) {
+                gltfMaterial.emissiveTexture.webGlTexture = webGlTextures[gltfMaterial.emissiveTexture.index]
+            }
+        }
+    }
 
-    requestAnimationFrame(function() {draw(gl, program, meshes, importer, uniforms)});
+    if(gltfModel.skins) {
+        createSkinTextures(gl, gltfModel)
+    }
+
+    let number_of_components_map = {
+        "SCALAR": 1,
+        "VEC2": 2,
+        "VEC3": 3,
+        "VEC4": 4,
+        "MAT2": 4,
+        "MAT3": 9,
+        "MAT4": 16
+    }
+
+
+
+
+    for(let renderable of gltfModel.renderable) {
+        let mesh = gltfModel.meshes[renderable.mesh]
+        for(let gltfPrimitive of mesh.primitives) {
+            let vertexAttribs = gltfPrimitive.attributes
+
+            let positions = vertexAttribs['POSITION']
+            gltfPrimitive.vao = gl.createVertexArray()
+            gl.bindVertexArray(gltfPrimitive.vao)
+            let positionBuffer = gl.createBuffer()
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
+            gl.bufferData(gl.ARRAY_BUFFER, positions.buffer, gl.STATIC_DRAW);
+            gl.vertexAttribPointer(0, number_of_components_map[positions.type], positions.componentType, false, 0, 0);
+            gl.enableVertexAttribArray(0);
+
+            if(vertexAttribs['NORMAL']) {
+                let normals = vertexAttribs['NORMAL']
+                let normalBuffer = gl.createBuffer()
+                gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer)
+                gl.bufferData(gl.ARRAY_BUFFER, normals.buffer, gl.STATIC_DRAW);
+                gl.vertexAttribPointer(1, number_of_components_map[normals.type], normals.componentType, false, 0, 0);
+                gl.enableVertexAttribArray(1);
+            }
+            if(vertexAttribs['TEXCOORD_0']) {
+                let texcoords0 = vertexAttribs['TEXCOORD_0']
+                let texcoord0Buffer = gl.createBuffer()
+                gl.bindBuffer(gl.ARRAY_BUFFER, texcoord0Buffer)
+                gl.bufferData(gl.ARRAY_BUFFER, texcoords0.buffer, gl.STATIC_DRAW);
+                gl.vertexAttribPointer(2, number_of_components_map[texcoords0.type], texcoords0.componentType, false, 0, 0);
+                gl.enableVertexAttribArray(2);
+            }
+            if(vertexAttribs['TEXCOORD_1']) {
+                let texcoords1 = vertexAttribs['TEXCOORD_0']
+                let texcoord1Buffer = gl.createBuffer()
+                gl.bindBuffer(gl.ARRAY_BUFFER, texcoord1Buffer)
+                gl.bufferData(gl.ARRAY_BUFFER, texcoords1.buffer, gl.STATIC_DRAW);
+                gl.vertexAttribPointer(3, number_of_components_map[texcoords1.type], texcoords1.componentType, false, 0, 0);
+                gl.enableVertexAttribArray(3);
+            }
+
+
+            if(vertexAttribs['JOINTS_0']) {
+                let joints0 = vertexAttribs['JOINTS_0']
+                let joint0Buffer = gl.createBuffer()
+                gl.bindBuffer(gl.ARRAY_BUFFER, joint0Buffer)
+                gl.bufferData(gl.ARRAY_BUFFER, joints0.buffer, gl.STATIC_DRAW);
+                gl.vertexAttribPointer(4, number_of_components_map[joints0.type], joints0.componentType, false, 0, 0);
+                gl.enableVertexAttribArray(4);
+            }
+
+            if(vertexAttribs['WEIGHTS_0']) {
+                let weights0 = vertexAttribs['WEIGHTS_0']
+                let weight0Buffer = gl.createBuffer()
+                gl.bindBuffer(gl.ARRAY_BUFFER, weight0Buffer)
+                gl.bufferData(gl.ARRAY_BUFFER, weights0.buffer, gl.STATIC_DRAW);
+                gl.vertexAttribPointer(5, number_of_components_map[weights0.type], weights0.componentType, false, 0, 0);
+                gl.enableVertexAttribArray(5);
+            }
+
+            let ebo = gl.createBuffer()
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER , gltfPrimitive.indices.buffer, gl.STATIC_DRAW);
+        }
+    }
+
 }
-
-
-
-
-
-function getSceneRootScale(scene_aabb) {
-    let max_size = Math.max(scene_aabb.width, scene_aabb.height)
-    max_size = Math.max(max_size, scene_aabb.depth)
-
-    let sceneRootScale = mat4.create()
-    mat4.fromScaling(sceneRootScale, vec4.fromValues(2/scene_aabb.width*scene_aabb.width/max_size, 
-                                                     2/scene_aabb.height*scene_aabb.height/max_size, 
-                                                     2/scene_aabb.depth*scene_aabb.depth/max_size)
-    )
-
-    let center = vec3.fromValues(
-        (scene_aabb['maxx']+scene_aabb['minx'])/2,
-        (scene_aabb['maxy']+scene_aabb['miny'])/2,
-        (scene_aabb['maxz']+scene_aabb['minz'])/2
-    )
-
-    vec3.negate(center, center)
-    mat4.translate(sceneRootScale,sceneRootScale, center)
-
-    return sceneRootScale
-}
-
 
 
 
@@ -396,61 +191,85 @@ async function main() {
       return;
     }
 
-    // disable right-click context menu
+
+    // // disable right-click context menu
     canvas.oncontextmenu = (event) => { 
         event.preventDefault();
         event.stopPropagation(); 
     }
 
-
-    // resize canvas/viewport
-    window.addEventListener('resize', () => {
-        canvas.width = window.innerWidth
-        canvas.height = window.innerHeight
-        gl.viewport(0, 0, canvas.width, canvas.height)
-    }, false);
+    let gltfModel = await gltf2io.import("./assets/mclaren_p1/scene.gltf")
 
 
-    let camera_pos = vec3.create()
-    vec3.set(camera_pos,2.0,0.0,2.5)
 
-    let camera_direction = vec3.create()
-    vec3.negate(camera_direction, camera_pos)
 
-    let camera = {
-        'position': camera_pos,
-        'direction': camera_direction
-    };
 
-    // model
-    let Model = mat4.create();
-    // view
+    gltfModel.renderable = gltfModel.nodes.filter((node) => node.mesh !== undefined)
+
+
+    let shader = await Shader.loadFromFile(gl, './shaders/default.vert', './shaders/pbr.frag')
+
+    await initWebGl(gl, gltfModel)
+
+
+
+    let getSceneRootScale = (nodes) => {
+        let aabb = {}
+        for(let node of nodes) {
+            let mesh = gltfModel.meshes[node.mesh]
+            for(let primitive of mesh.primitives) {
+                if(primitive.attributes.POSITION !== undefined) {
+                    let min = vec3.fromValues.apply(null, primitive.attributes.POSITION.min)
+                    let max = vec3.fromValues.apply(null, primitive.attributes.POSITION.max)
+                    vec3.transformMat4(min, min, node.globalTransformation)
+                    vec3.transformMat4(max, max, node.globalTransformation)
+
+                    aabb['minx'] = aabb['minx'] == undefined ? min[0] : Math.min(min[0], aabb['minx'])
+                    aabb['miny'] = aabb['miny'] == undefined ? min[1] : Math.min(min[1], aabb['miny'])
+                    aabb['minz'] = aabb['minz'] == undefined ? min[2] : Math.min(min[2], aabb['minz'])
+                    aabb['maxx'] = aabb['maxx'] == undefined ? max[0] : Math.max(max[0], aabb['maxx'])
+                    aabb['maxy'] = aabb['maxy'] == undefined ? max[1] : Math.max(max[1], aabb['maxy'])
+                    aabb['maxz'] = aabb['maxz'] == undefined ? max[2] : Math.max(max[2], aabb['maxz'])
+                }
+            }
+        }
+
+        let width = aabb.maxx - aabb.minx
+        let height = aabb.maxy - aabb.miny
+        let depth = aabb.maxz - aabb.minz
+
+        let max_size = Math.max(width, height)
+        max_size = Math.max(max_size, depth)
+
+        let sceneRootScale = mat4.create()
+        mat4.fromScaling(sceneRootScale, vec4.fromValues(2/max_size, 
+                                                         2/max_size, 
+                                                         2/max_size))
+
+        let center = vec3.fromValues(
+            (aabb['maxx']+aabb['minx'])/2,
+            (aabb['maxy']+aabb['miny'])/2,
+            (aabb['maxz']+aabb['minz'])/2
+        )
+
+        vec3.negate(center, center)
+        mat4.translate(sceneRootScale, sceneRootScale, center)
+        return sceneRootScale
+    }
+
+
+    
+    let Model = getSceneRootScale(gltfModel.renderable)
     let View = mat4.create()
-    mat4.lookAt(View, camera.position, [0,0,0], [0,1,0])
-    // projection
     let Projection = mat4.create()
-    mat4.perspective(Projection, glMatrix.glMatrix.toRadian(45.0), canvas.width/canvas.height, 0.5, 200.0)
-
-
-    let uniforms = {
-        'Model': Model,
-        'View': View,
-        'Projection': Projection,
-        'camera': camera 
-    };
-
-
-
-
-
 
 
     let mousePrevX;
     let mousePrevY;
 
     let rotateCamera  = (event) => {
-        let dx = -(mousePrevX ? event.screenX - mousePrevX : 0)*0.01
-        let dy = (mousePrevY ? event.screenY - mousePrevY : 0)*0.01
+        let dx = -(mousePrevX ? event.screenX - mousePrevX : 0)*0.004
+        let dy = (mousePrevY ? event.screenY - mousePrevY : 0)*0.004
         let radius = vec3.length(camera.position)
 
         let theta = Math.asin(camera.position[1]/radius)
@@ -463,7 +282,7 @@ async function main() {
         camera.position[1] = radius*Math.sin(theta)
         camera.position[0] = radius*Math.sin(phi)*Math.cos(theta)
         camera.position[2] = radius*Math.cos(phi)*Math.cos(theta)
-        mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
+        mat4.lookAt(View, camera.position, [0,0,0], [0,1,0])
 
         mousePrevX = event.screenX;
         mousePrevY = event.screenY;
@@ -491,7 +310,7 @@ async function main() {
         let translation_up = mat4.create()
         mat4.fromTranslation(translation_up, up)
         mat4.mul(translation_right, translation_right, translation_up)
-        mat4.mul(uniforms.Model, translation_right,uniforms.Model)
+        mat4.mul(Model, translation_right, Model)
 
         mousePrevX = event.screenX;
         mousePrevY = event.screenY;
@@ -506,43 +325,42 @@ async function main() {
         vec3.scaleAndAdd(new_position, camera.position, camera_direction, -event.deltaY*0.001)
 
         let length = vec3.length(new_position)
-        if(length < 1 || length > 30) {
-            return;
-        }
+        // if(length < 1 || length > 30) {
+        //     return;
+        // }
 
         camera.position = new_position
-        mat4.lookAt(uniforms.View, camera.position, [0,0,0], [0,1,0])
+        mat4.lookAt(View, camera.position, [0,0,0], [0,1,0])
     };
 
 
-
-    if ('onwheel' in document) {
-        // IE9+, FF17+, Ch31+
-        canvas.addEventListener("wheel", zoom);
-    } else if ('onmousewheel' in document) {
-        canvas.addEventListener("mousewheel", zoom);
-    } else {
-        // Firefox < 17
-        canvas.addEventListener("MozMousePixelScroll", zoom);
-    }
-    
-
-
-
     canvas.addEventListener('pointerdown', function(event) {
-        if(event.button == 0 && event.isPrimary) { // single touch
-            mousePrevX = 0;
-            mousePrevY = 0;
-            canvas.addEventListener('pointermove', rotateCamera)
+        if(event.isPrimary) { // single touch
+            if(event.button == 0) { // rotate camera
+                mousePrevX = 0;
+                mousePrevY = 0;
+                canvas.addEventListener('pointermove', rotateCamera)
+                canvas.addEventListener('pointerup', function(event) {
+                    if(event.button == 0) {
+                        canvas.removeEventListener('pointermove', rotateCamera)
+                    }
+                })
+            }
+            else if(event.button == 2) { // translate camera
+                mousePrevX = 0;
+                mousePrevY = 0;
+                canvas.addEventListener('pointermove', translateCamera)
+                canvas.addEventListener('pointerup', function(event) {
+                    if(event.button == 2) {
+                        canvas.removeEventListener('pointermove', translateCamera)
+                    }
+                })
+            }
         }
-        else if(event.button == 2 && event.isPrimary) {
-            mousePrevX = 0;
-            mousePrevY = 0;
-            canvas.addEventListener('pointermove', translateCamera)   
+        else {
+            canvas.removeEventListener('pointermove', rotateCamera)
         }
-        else if(event.button == 0 && !event.isPrimary) { // multi-touch
-            // TODO
-        }
+
     })
 
     canvas.addEventListener('pointerup', function(event) {
@@ -553,45 +371,285 @@ async function main() {
             canvas.removeEventListener('pointermove', translateCamera)
         }
     })
+
+    if ('onwheel' in document) {
+        // IE9+, FF17+, Ch31+
+        canvas.addEventListener("wheel", zoom);
+    } else if ('onmousewheel' in document) {
+        canvas.addEventListener("mousewheel", zoom);
+    } else {
+        // Firefox < 17
+        canvas.addEventListener("MozMousePixelScroll", zoom);
+    }
+
+
+    let camera = {
+        'position': vec3.fromValues(2,2,2)
+    }
+
+    let toRadian = glMatrix.glMatrix.toRadian
+    // out, fovy, aspect, near, far
+    mat4.perspective(Projection, toRadian(45.0), canvas.width/canvas.height, 0.8, 1000.0)
+    // out, eye, center, up
+    mat4.lookAt(View, camera.position, vec3.fromValues(0,0,0), vec3.fromValues(0,1,0))
+
+
+    shader.use()
+    shader.setUniform("Model", Model)
+    shader.setUniform("View", View)
+    shader.setUniform("Projection", Projection)
+    shader.setUniform("color", [1,1,1,1])
+
+
+    gl.clearColor(0,0,0,1)
+    gl.clear(gl.COLOR_BUFFER_BIT)
     
 
 
-    let importer = new gltf2_importer()
-    await importer.import("./assets/ruby_rose/scene.gltf")
-    let shaderProgram = await Shader.loadFromFile(gl, "shaders/main.vert", "shaders/pbr.frag")
+
+    let applyMaterial = (shader, material) => {
+        if(material.pbrMetallicRoughness.baseColorTexture) {
+            gl.activeTexture(gl.TEXTURE0)
+            shader.setUniform("material.baseColorTexture", 0)
+            shader.setUniform("material.baseColorTexcoord", material.pbrMetallicRoughness.baseColorTexture.texCoord)
+            gl.bindTexture(gl.TEXTURE_2D, material.pbrMetallicRoughness.baseColorTexture.webGlTexture)
+        }
+        else {
+            shader.setUniform("material.baseColorTexcoord", -1)
+        }
+        if(material.pbrMetallicRoughness.metallicRoughnessTexture) {
+            gl.activeTexture(gl.TEXTURE0 + 2)
+            shader.setUniform("material.metallicRoughnessTexture", 2)
+            shader.setUniform("material.metallicRoughnessTexcoord", material.pbrMetallicRoughness.metallicRoughnessTexture.texCoord)
+            gl.bindTexture(gl.TEXTURE_2D, material.pbrMetallicRoughness.metallicRoughnessTexture.webGlTexture)
+        }
+        else {
+            shader.setUniform("material.metallicRoughnessTexcoord", -1)
+        }
 
 
-    let meshes = initWebGl(gl, importer)
+        if(material.normalTexture) {
+            gl.activeTexture(gl.TEXTURE0 + 1)
+            shader.setUniform("material.normalTexture", 1)
+            shader.setUniform("material.normalTexcoord", material.normalTexture.texCoord)
+            gl.bindTexture(gl.TEXTURE_2D, material.normalTexture.webGlTexture)
+        }
+        else {
+            shader.setUniform("material.normalTexcoord", -1)
+        }
+
+        if(material.emissiveTexture) {
+            gl.activeTexture(gl.TEXTURE0 + 3)
+            shader.setUniform("material.emissiveTexture", 3)
+            shader.setUniform("material.emissiveTexcoord", material.emissiveTexture.texCoord)
+            gl.bindTexture(gl.TEXTURE_2D, material.emissiveTexture.webGlTexture)
+        }
+        else {
+            shader.setUniform("material.emissiveTexcoord", -1)
+        }
+        shader.setUniform("material.baseColorFactor", material.pbrMetallicRoughness.baseColorFactor)
+        shader.setUniform("material.metallicFactor", material.pbrMetallicRoughness.metallicFactor)
+        shader.setUniform("material.roughnessFactor", material.pbrMetallicRoughness.roughnessFactor)
+        shader.setUniform("material.emissiveFactor", material.emissiveFactor)
+    }
 
 
-    let sceneRootScale = getSceneRootScale(importer.scene_aabb)
-    mat4.mul(uniforms.Model, uniforms.Model, sceneRootScale)
+    function sortByDepth(meshes, view) {
+        meshes.sort((a,b) => {
+            let aPos = vec3.create()
+            let bPos = vec3.create()
+            let amatrix = mat4.create()
+            let bmatrix = mat4.create()
+            mat4.mul(amatrix, view, a.node.globalTransformation)
+            mat4.mul(bmatrix, view, b.node.globalTransformation)
+
+            mat4.getTranslation(aPos, amatrix)
+            mat4.getTranslation(bPos, bmatrix)
+            
+            return bPos[2] - aPos[2]
+        })
+    }
 
 
-    gl.clearColor(0.0, 0.0, 0.0, 1.0);
-    draw(gl, shaderProgram, meshes, importer, uniforms)
+    let updateAnimations = (animation, time) => {
+        let currentTime = time % animation.duration
+        for(let channel of animation.channels) {
+            let node = gltfModel.nodes[channel.target.node]
+            let path = channel.target.path
+            let sampler = animation.samplers[channel.sampler]
+
+            for(let keyFrameIndex=0; keyFrameIndex < sampler.input.buffer.length-1; keyFrameIndex++) {
+                if(currentTime >= sampler.input.buffer[keyFrameIndex] && currentTime < sampler.input.buffer[keyFrameIndex+1]) {
+                    let rotation = quat.create()
+                    let scaling = vec3.create()
+                    let translation = vec3.create()
+
+                    mat4.getRotation(rotation, node.localTransformation)
+                    mat4.getScaling(scaling, node.localTransformation)
+                    mat4.getTranslation(translation, node.localTransformation)
+                    
+                    let dt = sampler.input.buffer[keyFrameIndex+1] - sampler.input.buffer[keyFrameIndex]
+                    let factor = (currentTime - sampler.input.buffer[keyFrameIndex])/dt;
+
+                    if(path == "rotation") {
+                        rotation = quat.fromValues.apply(null, sampler.output.buffer.slice(keyFrameIndex*4, keyFrameIndex*4+4))
+                        let nextRotation = quat.fromValues.apply(null, sampler.output.buffer.slice((keyFrameIndex+1)*4, (keyFrameIndex+1)*4+4))
+                        quat.slerp(rotation, rotation, nextRotation, factor)
+                    }
+                    else if(path == "scale") {
+                        scaling = vec3.fromValues.apply(null, sampler.output.buffer.slice(keyFrameIndex*3, keyFrameIndex*3+3))
+                        let nextScaling = vec3.fromValues.apply(null, sampler.output.buffer.slice((keyFrameIndex+1)*3, (keyFrameIndex+1)*3+3))
+                        quat.lerp(scaling, scaling, nextScaling, factor)
+                    }
+                    else if(path == "translation") {
+                        translation = vec3.fromValues.apply(null, sampler.output.buffer.slice(keyFrameIndex*3, keyFrameIndex*3+3))
+                        let nextTranslation = vec3.fromValues.apply(null, sampler.output.buffer.slice((keyFrameIndex+1)*3, (keyFrameIndex+1)*3+3))
+                        quat.lerp(translation, translation, nextTranslation, factor)
+                    }
+                    
+                    mat4.fromRotationTranslationScale(node.localTransformation, rotation, translation, scaling)
+                    break
+                }
+            }
+        }
+    }
 
 
 
+    let updateTransformations = () => {
+        let update = (node) => {
+            if(node.parent == -1) {
+                node.globalTransformation = node.localTransformation
+            }
+            else {
+                mat4.mul(node.globalTransformation, gltfModel.nodes[node.parent].globalTransformation, node.localTransformation)
+            }
 
-    //  GUI
-    var gui = new dat.GUI();
-    gui.domElement.id = 'gui';
-    var debugChannels = {'Debug Channels': 'None'};
-    let channels =  [
-        'None', 'Base Color', 'Metallic', 'Roughness', 
-        'Normal', 'F0', 'F_Schlick','V_SmithGGXCorrelated', 
-        'D_GGX', 'Diffuse', 'Specular', 'Emissive',
-        'Alpha'
-    ]
+            if(node.children) {
+                for(let child of node.children) {
+                    update(gltfModel.nodes[child])
+                }
+            }
+        }
 
-    let debugChannelsController = gui.add(debugChannels, 'Debug Channels', channels)
+        for(let scene of gltfModel.scenes) {
+            for(let node of scene.nodes) {
+                update(gltfModel.nodes[node])
+            }
+        }
+    }
 
-    debugChannelsController.onChange((value) => {
-        let location = gl.getUniformLocation(shaderProgram, "debugValue");
-        gl.uniform1f(location, channels.indexOf(value)) 
-    })
 
+
+    let updateSkins = () => {
+        for(let skin of gltfModel.skins) {
+            let root = gltfModel.nodes[gltfModel.nodes[skin.skeleton].parent]
+            let rootTranform = mat4.fromValues.apply(null, root.globalTransformation)
+            mat4.invert(rootTranform, rootTranform)
+    
+            let joints = []
+    
+            for(let jointIndex in skin.joints) {
+                let jointNode = gltfModel.nodes[skin.joints[jointIndex]]
+                let inverseBindMatrix = mat4.fromValues.apply(null, skin.inverseBindMatrices.buffer.slice(jointIndex*16, jointIndex*16+16))
+    
+                let jointTransform = mat4.create()
+                mat4.mul(jointTransform, jointNode.globalTransformation, inverseBindMatrix)
+                mat4.mul(jointTransform, rootTranform, jointTransform)
+    
+                joints.push.apply(joints, jointTransform)
+            }
+    
+            var skinTexture = skin.texture;
+            gl.bindTexture(gl.TEXTURE_2D, skinTexture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, skin.joints.length, 0, gl.RGBA, gl.FLOAT, new Float32Array(joints));
+        }
+    }
+        
+    
+
+
+    let draw = () => {
+        gl.clear(gl.COLOR_BUFFER_BIT)
+        shader.setUniform("View", View)
+
+        if(gltfModel.animations) {
+            updateAnimations(gltfModel.animations[0], new Date().getTime()/1000)
+            updateTransformations()
+            if(gltfModel.skins) {
+                updateSkins()
+            }
+        }
+
+        let nodes = []
+        for(let renderable of gltfModel.renderable) {
+            let mesh = gltfModel.meshes[renderable.mesh]
+            for(let primitive of mesh.primitives) {
+                nodes.push({'node': renderable, 'primitive': primitive})
+            }
+        }
+        let transparent = nodes.filter(({node, primitive}) => primitive.material.alphaMode)
+        let opaque = nodes.filter(({node, primitive}) => primitive.material.alphaMode == undefined)
+
+        sortByDepth(transparent, View)
+
+
+        for(let {node, primitive} of opaque) {
+            let mesh = gltfModel.meshes[node.mesh]
+            gl.bindVertexArray(primitive.vao)
+            let nodeTransform = mat4.create()
+            mat4.mul(nodeTransform, Model, node.globalTransformation)
+            shader.setUniform("Model", nodeTransform)
+            applyMaterial(shader, primitive.material)
+            shader.setUniform("cameraPosition", camera.position)
+
+            if(node.skin !== undefined) {
+                shader.setUniform("boneCount", gltfModel.skins[node.skin].joints.length)
+                gl.activeTexture(gl.TEXTURE0 + 5)
+                shader.setUniform("skinTexture", 5)
+                gl.bindTexture(gl.TEXTURE_2D,  gltfModel.skins[node.skin].texture)
+            }
+            else {
+                shader.setUniform("boneCount", 0)
+            }
+
+            gl.drawElements(primitive.mode, primitive.indices.buffer.length, primitive.indices.componentType, 0);
+        }
+
+        for(let {node, primitive} of transparent) {
+            let mesh = gltfModel.meshes[node.mesh]
+            gl.bindVertexArray(primitive.vao)
+            let nodeTransform = mat4.create()
+            mat4.mul(nodeTransform, Model, node.globalTransformation)
+            shader.setUniform("Model", nodeTransform)
+            applyMaterial(shader, primitive.material)
+            shader.setUniform("cameraPosition", camera.position)
+
+            if(node.skin !== undefined) {
+                shader.setUniform("boneCount", gltfModel.skins[node.skin].joints.length)
+                gl.activeTexture(gl.TEXTURE0 + 5)
+                shader.setUniform("skinTexture", 5)
+                gl.bindTexture(gl.TEXTURE_2D,  gltfModel.skins[node.skin].texture)
+            }
+            else {
+                shader.setUniform("boneCount", 0)
+            }
+
+            gl.drawElements(primitive.mode, primitive.indices.buffer.length, primitive.indices.componentType, 0);
+        }
+
+        requestAnimationFrame(draw)
+    }
+
+
+    gl.enable(gl.DEPTH_TEST)
+    gl.depthFunc(gl.LEQUAL);
+    gl.enable(gl.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.blendEquation(gl.FUNC_ADD);
+    draw()
+
+   
 }
  
 

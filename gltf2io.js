@@ -1,166 +1,145 @@
 const {mat2, mat3, mat4, vec2, vec3, vec4, quat} = glMatrix;
 
-export class gltf2_importer {
-    constructor() {
-        
-        this.pathToFile = ''
+export class gltf2io {
 
-        this.scenes = []
-        this.skins = []
-
-
-        this.meshes = []
-        this.component_type_map = {
-            5120: 1,
-            5121: 1,
-            5122: 2,
-            5123: 2,
-            5125: 4,
-            5126: 4
-        }
-
-        this.number_of_components_map = {
-            "SCALAR": 1,
-            "VEC2": 2,
-            "VEC3": 3,
-            "VEC4": 4,
-            "MAT2": 4,
-            "MAT3": 9,
-            "MAT4": 16
-        }
+    static component_type_map = {
+        5120: 1,
+        5121: 1,
+        5122: 2,
+        5123: 2,
+        5125: 4,
+        5126: 4
     }
 
+    static number_of_components_map = {
+        "SCALAR": 1,
+        "VEC2": 2,
+        "VEC3": 3,
+        "VEC4": 4,
+        "MAT2": 4,
+        "MAT3": 9,
+        "MAT4": 16
+    }
+    
 
-    async import(path) {
+    static async import(path) {
         this.pathToFile = path
         
+
         let response = await fetch(path)
-        this.json_file = await response.json()
+        this.gltf = await response.json()
+        this.buffers = await this.readBuffers()
 
-        this.scenes = this.json_file['scenes']
+        this.meshes = []
 
+        if(this.gltf.textures) {
+            this.textures = this.readTextures()
+        }
+        this.materials = this.readMaterials()
+        this.scenes = this.gltf.scenes
 
+        this.nodes = new Array(this.gltf.nodes.length)
+        this.readNodes()
+        this.readMeshes()
 
-        this.buffers = []
+        if(this.gltf.skins) {
+            this.skins = this.readSkins()
+        }
 
-        //read images/buffers
-        let p_images = this.readImages(this.json_file['images'])
-        let p_buffers = this.readBuffers(this.json_file['buffers'])
-        let [buffers, images] = await Promise.all([p_buffers, p_images])
-        this.images = images
-        this.buffers = buffers
+        if(this.gltf.animations) {
+            this.animations = this.readAnimations()
+        }
 
-        this.textures = this.readTextures(this.json_file['textures'])
-        this.materials = this.readMaterials(this.json_file['materials'])
-        this.readMeshes(this.json_file['meshes'])
-        this.readSkins(this.json_file['skins'])
-
-        this.nodes = new Array(this.json_file['scenes'].length)
-        this.renderable = []
-
-        this.readSceneGraph(this.json_file['scenes'][0]['nodes'][0])
-        this.readSceneAABB()
-        
-    }
-
-
-    readSkins(json_skins) {
-        if(!json_skins) return
-        for(let skin of json_skins) {
-            let inverseBindMatrices = this.readAccessor(skin['inverseBindMatrices'])  
-            this.skins.push({
-                'inverseBindMatrices': inverseBindMatrices,
-                'joints': skin['joints'],
-                'skeleton': skin['skeleton']
-            })
+        return {
+            'scenes': this.scenes,
+            'nodes': this.nodes,
+            'meshes': this.meshes,
+            'textures': this.textures,
+            'materials': this.materials,
+            'skins': this.skins,
+            'animations': this.animations
         }
     }
 
-
-    readSceneGraph(node_index, parent = -1) {
-        let json_node = this.json_file['nodes'][node_index]
-        let localTransformation = this.readLocalTransformation(json_node)
-        let globalTransformation = mat4.create()
-
-
-        if(parent != -1) {
-            mat4.mul(globalTransformation, this.nodes[parent]['globalTransformation'], localTransformation)
-        }
-        else {
-            globalTransformation = localTransformation
-        }
-
-
-        let node = {
-            'parent': parent,
-            'localTransformation': localTransformation,
-            'globalTransformation': globalTransformation
-        }
-
-
-        if(json_node['mesh'] !== undefined) {
-            let aabb = this.readMeshAABB(json_node['mesh'], globalTransformation)
-            node['aabb'] = aabb
-            node['mesh'] =  json_node['mesh']
-            this.renderable.push(node)
-        }
-
-
-        if(json_node['skin'] !== undefined) {
-            node['skin'] =  json_node['skin']
-        }
-
-        this.nodes[node_index] = node
-
-        if(json_node['children'] !== undefined) {
-            for(let child of json_node['children']) {
-                this.readSceneGraph(child, node_index)
+   
+    static readAnimations() {
+        let animations = this.gltf.animations
+        for(let animation of animations) {
+            animation.duration = 0
+            for(let sampler of animation.samplers) {
+                sampler.input = this.readAccessor(sampler.input)
+                sampler.output = this.readAccessor(sampler.output)
+                animation.duration = Math.max(animation.duration, sampler.input.buffer[sampler.input.buffer.length-1])
             }
         }
 
+        return animations
     }
 
 
+    static readSkins() {
+        let skins = []
+        for(let skin of this.gltf.skins) {
+            let joints = skin.joints
+            let inverseBindMatrices = this.readAccessor(skin.inverseBindMatrices)
+            skins.push({
+                'joints': joints,
+                'inverseBindMatrices': inverseBindMatrices,
+                'skeleton': skin.skeleton || joints[0]
+            })
+        }
+        return skins
+    }
 
-    readMeshAABB(mesh, globalTransformation) {
-        let json_mesh = this.json_file['meshes'][mesh]
-        let mesh_aabb = {}
-        for(let json_primitive of json_mesh['primitives'])  {
-            let accessor_index = json_primitive['attributes']['POSITION']
-            let accessor = this.json_file['accessors'][accessor_index]
 
-            let min = vec4.fromValues(accessor['min'][0], accessor['min'][1], accessor['min'][2], 0)
-            let max = vec4.fromValues(accessor['max'][0], accessor['max'][1], accessor['max'][2], 0)
+    static readNodes() {
 
-            vec4.transformMat4(min, min, globalTransformation)
-            vec4.transformMat4(max, max, globalTransformation)
+        let readSceneNodes = (nodeIndex, parentIndex = -1) => {
+            let nodeLocalTransformation = this.readLocalTransformation(this.gltf.nodes[nodeIndex])
+            let globalTransformation = mat4.create()
 
-            mesh_aabb['minx'] = mesh_aabb['minx'] ? Math.min(mesh_aabb['minx'], min[0]) : min[0]
-            mesh_aabb['miny'] = mesh_aabb['miny'] ? Math.min(mesh_aabb['miny'], min[1]) : min[1]
-            mesh_aabb['minz'] = mesh_aabb['minz'] ? Math.min(mesh_aabb['minz'], min[2]) : min[2]
-            mesh_aabb['maxx'] = mesh_aabb['maxx'] ? Math.max(mesh_aabb['maxx'], max[0]) : max[0]
-            mesh_aabb['maxy'] = mesh_aabb['maxy'] ? Math.max(mesh_aabb['maxy'], max[1]) : max[1]
-            mesh_aabb['maxz'] = mesh_aabb['maxz'] ? Math.max(mesh_aabb['maxz'], max[2]) : max[2]
-    
-            mesh_aabb['width'] =  mesh_aabb['maxx'] - mesh_aabb['minx']
-            mesh_aabb['height'] =  mesh_aabb['maxy'] - mesh_aabb['miny']
-            mesh_aabb['depth'] =  mesh_aabb['maxz'] - mesh_aabb['minz']
+            if(parentIndex != -1) {
+                mat4.mul(globalTransformation, this.nodes[parentIndex].globalTransformation, nodeLocalTransformation)
+            }
+            else {
+                globalTransformation = nodeLocalTransformation
+            }
+
+            this.nodes[nodeIndex] = {
+                'localTransformation': nodeLocalTransformation,
+                'globalTransformation': globalTransformation,
+                'parent': parentIndex
+            }
+
+            if(this.gltf.nodes[nodeIndex].mesh !== undefined) {
+                this.nodes[nodeIndex].mesh = this.gltf.nodes[nodeIndex].mesh
+            }
+
+            if(this.gltf.nodes[nodeIndex].skin !== undefined) {
+                this.nodes[nodeIndex].skin = this.gltf.nodes[nodeIndex].skin
+            }
+
+            if(this.gltf.nodes[nodeIndex].children !== undefined) {
+                this.nodes[nodeIndex].children = this.gltf.nodes[nodeIndex].children
+                for(let childIndex of this.gltf.nodes[nodeIndex].children) {
+                    readSceneNodes(childIndex, nodeIndex)
+                }
+            }
         }
 
-        return mesh_aabb
+        for(let gltfScene of this.gltf.scenes) {
+            for(let sceneRootIndex of gltfScene.nodes) {
+                readSceneNodes(sceneRootIndex)
+            }
+        }
+        // console.log(this.nodes)
     }
 
-
-    readLocalTransformation(node) {
+    static readLocalTransformation(node) {
         let matrix = mat4.create()
         if(node['matrix']) {
             let m = node['matrix']
-            matrix = mat4.fromValues(
-                m[0], m[1], m[2], m[3],
-                m[4] ,m[5] ,m[6] ,m[7],
-                m[8], m[9], m[10], m[11], 
-                m[12], m[13], m[14], m[15]
-            )
+            matrix = mat4.fromValues.apply(null, node['matrix'] )
 
         }
         else {
@@ -193,164 +172,122 @@ export class gltf2_importer {
         return matrix
     }
 
-    readSceneAABB() {
-        this.scene_aabb = {}
-
-        for(let mesh of this.renderable) {
-            let aabb = mesh.aabb
-            this.scene_aabb['minx'] = this.scene_aabb['minx'] ? Math.min(this.scene_aabb['minx'], aabb['minx']) : aabb['minx']
-            this.scene_aabb['miny'] = this.scene_aabb['miny'] ? Math.min(this.scene_aabb['miny'], aabb['miny']) : aabb['miny']
-            this.scene_aabb['minz'] = this.scene_aabb['minz'] ? Math.min(this.scene_aabb['minz'], aabb['minz']) : aabb['minz']
-            this.scene_aabb['maxx'] = this.scene_aabb['maxx'] ? Math.max(this.scene_aabb['maxx'], aabb['maxx']) : aabb['maxx']
-            this.scene_aabb['maxy'] = this.scene_aabb['maxy'] ? Math.max(this.scene_aabb['maxy'], aabb['maxy']) : aabb['maxy']
-            this.scene_aabb['maxz'] = this.scene_aabb['maxz'] ? Math.max(this.scene_aabb['maxz'], aabb['maxz']) : aabb['maxz']
-        }
-
-        this.scene_aabb['width'] =  this.scene_aabb['maxx'] - this.scene_aabb['minx']
-        this.scene_aabb['height'] =  this.scene_aabb['maxy'] - this.scene_aabb['miny']
-        this.scene_aabb['depth'] =  this.scene_aabb['maxz'] - this.scene_aabb['minz']
-
-    }
-
-
-
-    readMaterials(json_materials) {
-        let materials = []
-        for(let json_material of json_materials) {
-            let baseColorTexture;
-            let metallicRoughnessTexture;
-            let metallicFactor = 1;
-            let roughnessFactor = 1;
-            let baseColorFactor = [1,1,1,1];
-            let emissiveFactor = json_material['emissiveFactor'] ?  json_material['emissiveFactor'] : [0,0,0];
-            if(json_material['pbrMetallicRoughness']) {
-                baseColorTexture = json_material['pbrMetallicRoughness']['baseColorTexture']
-                metallicRoughnessTexture = json_material['pbrMetallicRoughness']['metallicRoughnessTexture']
-                metallicFactor = json_material['pbrMetallicRoughness']['metallicFactor'] 
-                roughnessFactor = json_material['pbrMetallicRoughness']['roughnessFactor']
-                baseColorFactor = json_material['pbrMetallicRoughness']['baseColorFactor']
-            }
-            
-
-
-            let emissiveTexture = json_material['emissiveTexture'] 
-            let emissiveTexcoord = emissiveTexture ? emissiveTexture['texCoord'] ? emissiveTexture['texCoord'] : 0 : -1
-            let normalTexture = json_material['normalTexture']
-            let baseColorTexcoord = baseColorTexture ? baseColorTexture['texCoord'] ? baseColorTexture['texCoord'] : 0 : -1
-            let normalTexcoord = normalTexture ? normalTexture['texCoord'] ? normalTexture['texCoord'] : 0 : -1
-            let metallicRoughnessTexcoord = metallicRoughnessTexture ? metallicRoughnessTexture['texCoord'] ? metallicRoughnessTexture['texCoord'] : 0 : -1
-
-            materials.push({
-                'baseColorTexture': baseColorTexture ?  baseColorTexture['index'] : undefined,
-                'normalTexture': normalTexture ? normalTexture['index'] : undefined,
-                'metallicRoughnessTexture': metallicRoughnessTexture ? metallicRoughnessTexture['index'] : undefined,
-                'metallicFactor' : metallicFactor != undefined  ? metallicFactor : 1,
-                'roughnessFactor' : roughnessFactor != undefined ? roughnessFactor : 1,
-                'emissiveTexture': emissiveTexture ? emissiveTexture['index'] : undefined,
-                'emissiveTexcoord' : emissiveTexcoord,
-                'emissiveFactor': emissiveFactor,
-                'baseColorTexcoord': baseColorTexcoord,
-                'normalTexcoord': normalTexcoord,
-                'metallicRoughnessTexcoord': metallicRoughnessTexcoord,
-                'baseColorFactor': baseColorFactor ? baseColorFactor : [1, 1, 1, 1],
-                "alphaMode": json_material['alphaMode'] ? json_material['alphaMode'] : undefined
-            })
-        }
-
-        return materials
-    }
-
-
-    readTextures(json_textures) {
-        if(!json_textures) return [];
+    
+    static readTextures() {
         let textures = []
-        for(let json_texture of json_textures) {
-            let sampler = this.json_file['samplers'][json_texture['sampler']]
-            let source = this.json_file['images'][json_texture['source']]
+        for(let gltfTexture of this.gltf.textures) {
+            let textureSource =  this.pathToFile.substring(0, this.pathToFile.lastIndexOf("/")) + '/' + this.gltf.images[gltfTexture.source].uri
+            let textureSampler = this.gltf.samplers[gltfTexture.sampler]
             textures.push({
-                'magFilter': sampler['magFilter'] ? sampler['magFilter'] : 9729,
-                'minFilter': sampler['minFilter'] ? sampler['minFilter'] : 9729,
-                'wrapS': sampler['wrapS'] ? sampler['wrapS'] : 10497,
-                'wrapT': sampler['wrapT'] ? sampler['wrapT'] : 10497,
-                'source': json_texture['source']
+                'source': textureSource,
+                'sampler': textureSampler 
             })
         }
         return textures
     }
 
+    static readMaterials() {
+        let MAX_TEXCOORDS = 1
+        let materials = []
+        for(let gltfMaterial of this.gltf.materials) {
+            let material = {}
+            if(gltfMaterial.normalTexture) {
+                let index = gltfMaterial.normalTexture.index
+                let texCoord = gltfMaterial.normalTexture.texCoord || 0
+                // if(texCoord > MAX_TEXCOORDS) texCoord = 0
+                material['normalTexture'] = {
+                    'index': index,
+                    'texCoord': texCoord
+                }
+            }
+            if(gltfMaterial.emissiveTexture) {
+                let index = gltfMaterial.emissiveTexture.index
+                let texCoord = gltfMaterial.emissiveTexture.texCoord || 0
+                // if(texCoord > MAX_TEXCOORDS) texCoord = 0
+                material['emissiveTexture'] = {
+                    'index': index,
+                    'texCoord': texCoord
+                }
+            }
+            let pbr = {
+                'baseColorFactor':  [1,1,1,1],
+                'metallicFactor': 1,
+                'roughnessFactor': 1
+            }
+            if(gltfMaterial.pbrMetallicRoughness) {
+                pbr.baseColorFactor = gltfMaterial.pbrMetallicRoughness.baseColorFactor || pbr.baseColorFactor
+                pbr.metallicFactor = gltfMaterial.pbrMetallicRoughness.metallicFactor || pbr.metallicFactor
+                pbr.roughnessFactor = gltfMaterial.pbrMetallicRoughness.roughnessFactor || pbr.roughnessFactor
+                if(gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture) {
+                    let index = gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index
+                    let texCoord = gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.texCoord || 0
+                    // if(texCoord > MAX_TEXCOORDS) texCoord = 0
+                    pbr.metallicRoughnessTexture = {
+                        'index': index,
+                        'texCoord': texCoord
+                    }
+                }
+                if(gltfMaterial.pbrMetallicRoughness.baseColorTexture) {
+                    let index = gltfMaterial.pbrMetallicRoughness.baseColorTexture.index
+                    let texCoord = gltfMaterial.pbrMetallicRoughness.baseColorTexture.texCoord || 0
+                    // if(texCoord > MAX_TEXCOORDS) texCoord = 0
+                    pbr.baseColorTexture = {
+                        'index': index,
+                        'texCoord': texCoord
+                    }
+                }
+            }
+            material.pbrMetallicRoughness = pbr
 
-    async readImages(json_images) {
-        if(!json_images) return;
-        let path_to_asset = this.pathToFile.substring(0, this.pathToFile.lastIndexOf("/"));
-        let images = []
-        for(let json_image of json_images) {
-            images.push(
-                new Promise((resolve, reject) => {
-                    let image_path = path_to_asset + '/' + json_image['uri']
-                    let image = new Image()
-                    image.src = image_path
-                    image.addEventListener('load', function() {
-                        resolve(this);
-                    });
-                })
-            )
+            material.emissiveFactor = gltfMaterial.emissiveFactor || [0,0,0]
+
+            if(gltfMaterial.alphaMode) {
+                material.alphaMode = gltfMaterial.alphaMode
+            }
+
+            materials.push(material)
         }
-        return Promise.all(images)
+
+        return materials
     }
 
-
-    readMeshes(json_meshes) {
-        for(let json_mesh of json_meshes) {
-            for(let json_primitive of json_mesh['primitives']) {
-                let vertices = this.readAccessor(json_primitive['attributes']['POSITION'])
-                let normals = this.readAccessor(json_primitive['attributes']['NORMAL'])
-                let texcoords0 = this.readAccessor(json_primitive['attributes']['TEXCOORD_0'])
-                let texcoords1;
-                let joints0;
-                let weights0;
-                if('TEXCOORD_1' in json_primitive['attributes']) {
-                    texcoords1 = this.readAccessor(json_primitive['attributes']['TEXCOORD_1'])
+    static readMeshes() {
+        for(let gltfMesh of this.gltf.meshes) {
+            let mesh = {'primitives': []}
+            for(let gltfPrimitive of gltfMesh.primitives) {
+                let attributes = {}
+                for(let vertexAttrib in gltfPrimitive.attributes) {
+                    attributes[vertexAttrib] = this.readAccessor(gltfPrimitive.attributes[vertexAttrib])
                 }
-                if('JOINTS_0' in json_primitive['attributes']) {
-                    joints0 = this.readAccessor(json_primitive['attributes']['JOINTS_0'])
-                }
-                if('WEIGHTS_0' in json_primitive['attributes']) {
-                    weights0 = this.readAccessor(json_primitive['attributes']['WEIGHTS_0'])
-                }
+                let indices = this.readAccessor(gltfPrimitive.indices)
+                let mode = gltfPrimitive.mode || 4
 
-                let indices = this.readAccessor(json_primitive['indices'])
+                let material = this.materials[gltfPrimitive.material]
 
-                let material_index = json_primitive['material']
-                this.meshes.push({
-                    'vertices': vertices,
+                mesh.primitives.push({
+                    'attributes': attributes,
                     'indices': indices,
-                    'normals': normals,
-                    'texcoords0': texcoords0,
-                    'texcoords1': texcoords1,
-                    'material_index': material_index,
-                    'joints0': joints0,
-                    'weights0': weights0,
-                    'mode': json_primitive['mode'] ? json_primitive['mode'] : 4
+                    'mode': mode,
+                    'material': material
                 })
             }
+            this.meshes.push(mesh)
         }
     }
 
 
-    readAccessor(index) {
-        let accessor = this.json_file['accessors'][index]
-        if(!accessor) return;
+    static readAccessor(index) {
+        let accessor = this.gltf['accessors'][index]
 
-        let bufferView = this.json_file['bufferViews'][accessor['bufferView']]
+        let bufferView = this.gltf['bufferViews'][accessor['bufferView']]
         let buffer_index = bufferView['buffer']
         let buffer = this.buffers[buffer_index]
         let buffer_size = accessor['count']*this.number_of_components_map[accessor['type']]
         let byteOffset = bufferView['byteOffset'] ? bufferView['byteOffset'] : 0
         byteOffset += accessor['byteOffset'] ? accessor['byteOffset'] : 0
-        
         let typed_buffer = []
         if(accessor['componentType'] == 5125) {
-            typed_buffer = new Int32Array(buffer, byteOffset, buffer_size)
+            typed_buffer = new Uint32Array(buffer, byteOffset, buffer_size)
         }
         else if(accessor['componentType'] == 5126) {
             typed_buffer = new Float32Array(buffer, byteOffset, buffer_size)
@@ -358,25 +295,41 @@ export class gltf2_importer {
         else if(accessor['componentType'] == 5121) {
             typed_buffer = new Int8Array(buffer, byteOffset, buffer_size)
         }
-        else {
+        else if(accessor['componentType'] == 5123) {
+            typed_buffer = new Uint16Array(buffer, byteOffset, buffer_size)
+        }
+        else if(accessor['componentType'] == 5122) {
             typed_buffer = new Int16Array(buffer, byteOffset, buffer_size)
         }
+        else if(accessor['componentType'] == 5120) {
+            typed_buffer = new Int8Array(buffer, byteOffset, buffer_size)
+        }
 
-        return typed_buffer
+        let output = {
+            'buffer': typed_buffer,
+            'componentType': accessor.componentType,
+            'type': accessor.type
+        }
+
+        if(accessor.min !== undefined) {
+            output.min = accessor.min
+        }
+        if(accessor.min !== undefined) {
+            output.max = accessor.max
+        }
+
+        return output
     }
 
 
-    async readBuffers(json_buffers) {
+    static async readBuffers() {
         let path_to_asset = this.pathToFile.substring(0, this.pathToFile.lastIndexOf("/"));
         let uris = []
-        for(let json_buffer of json_buffers) {
+        for(let json_buffer of this.gltf.buffers) {
             uris.push(fetch(path_to_asset + '/' + json_buffer['uri']))
         }
-
         return Promise.all(uris).then(responses => {
             return Promise.all(responses.map(r => r.arrayBuffer()))
         })
     }
 }
-
-
